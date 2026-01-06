@@ -18,14 +18,14 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Copy compiled classes
-COPY --from=build /app/target/classes ./classes
-
 # Copy Maven dependencies
 COPY --from=build /app/target/dependency ./libs
 
 # Copy Feig SDK JARs
 COPY libs/*.jar ./libs/
+
+# Copy compiled classes
+COPY --from=build /app/target/classes ./classes
 
 # Copy native libraries
 COPY native/linux.x64 ./native
