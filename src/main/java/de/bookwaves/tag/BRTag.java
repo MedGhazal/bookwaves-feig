@@ -3,6 +3,8 @@ package de.bookwaves.tag;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * POJO representing a Smartfreq BR format tag (previously used vendor format).
@@ -10,6 +12,8 @@ import java.security.NoSuchAlgorithmException;
  * Header: 0x41 (first byte)
  */
 public class BRTag extends Tag {
+
+    private static final Logger log = LoggerFactory.getLogger(BRTag.class);
 
     public static final byte BR_HEADER = (byte) 0x41;
     private final String secretKey;
@@ -24,11 +28,13 @@ public class BRTag extends Tag {
     @Override
     public String getMediaId() {
         if (epc.length < 2) {
+            log.warn("BRTag EPC too short to decode mediaId ({} bytes)", epc.length);
             return "";
         }
         
         int numberOfBytes = epc[1] & 0xFF;
         if (epc.length < 2 + numberOfBytes) {
+            log.warn("BRTag EPC length mismatch: header says {} bytes, actual {}", numberOfBytes, epc.length);
             return "";
         }
         
@@ -88,6 +94,7 @@ public class BRTag extends Tag {
         // Ensure tag is marked non-GS1 EPCglobal Application
         pc[0] = (byte) (pc[0] | 0b00000001);
         pc[1] = secured ? SECURED_BITS : UNSECURED_BITS;
+        log.debug("Set BRTag secured={} (pc[1]=0x{})", secured, String.format("%02X", pc[1]));
     }
 
     @Override
@@ -187,5 +194,6 @@ public class BRTag extends Tag {
                 "BRTag (Smartfreq BR) format requires uppercase alphanumeric media ID with optional spaces " +
                 "(got: '" + mediaId + "')");
         }
+        log.debug("Validated BRTag mediaId '{}'", mediaId);
     }
 }

@@ -26,7 +26,7 @@ import java.util.Map;
 
 public class Main {
 
-    private static final Logger log = LoggerFactory.getLogger(Main.class);
+    private static Logger log;
     private static ReaderManager readerManager;
     
     // Retry configuration for RF operations
@@ -34,10 +34,29 @@ public class Main {
     private static final int RETRY_DELAY_MS = 100;
 
     public static void main(String[] args) {
+        List<ReaderConfig> readers;
+
+        try {
+            readers = ConfigLoader.loadReaders("config.yaml");
+        } catch (Exception e) {
+            System.err.println("Failed to load reader configuration: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        String configuredLogLevel = ConfigLoader.getLogLevel();
+        if (configuredLogLevel != null && !configuredLogLevel.isBlank()) {
+            System.setProperty("org.slf4j.simpleLogger.defaultLogLevel", configuredLogLevel.toLowerCase());
+        }
+
+        boolean corsAnyHost = ConfigLoader.isCorsAnyHost();
+
+        log = LoggerFactory.getLogger(Main.class);
+
         log.info("Starting RFID Reader Service");
         log.info("java.library.path = {}", System.getProperty("java.library.path"));
         if (!testNativeLibLoading()) {
-            System.err.println("Exiting due to failure in loading native library.");
+            log.error("Exiting due to failure in loading native library.");
             System.exit(1);
         }
 
@@ -45,8 +64,6 @@ public class Main {
         readerManager = new ReaderManager();
         
         try {
-            List<ReaderConfig> readers = ConfigLoader.loadReaders("config.yaml");
-            
             // Load global password configuration and set it in TagFactory
             Map<String, String> tagPasswords = ConfigLoader.getTagPasswords();
             TagFactory.setPasswordConfiguration(tagPasswords);
@@ -58,31 +75,44 @@ public class Main {
                     config.getName(), config.getMode(), config.getAntennas());
             }
         } catch (Exception e) {
-            log.error("Failed to load reader configuration", e);
+            log.error("Failed to process reader configuration", e);
             System.exit(1);
         }
 
-        var app = Javalin.create()
+        var app = Javalin.create(
+            config -> {
+                if (corsAnyHost) {
+                    config.bundledPlugins.enableCors(cors -> {
+                        cors.addRule(rule -> rule.anyHost());
+                    });
+                }
+            }
+        )
                 .get("/", ctx -> ctx.result("Hello Feig!"))
                 .start(7070);
+
+        log.info("Javalin server started on port 7070");
 
 
         // Register shutdown hook and event to close all readers
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             log.info("Shutting down...");
             app.stop();
+            log.info("Javalin server stopped");
         }));
         
         app.events(event -> {
             event.serverStopping(() -> {
                 log.info("Shutting down - closing all readers...");
                 readerManager.closeAll();
+                log.info("All readers closed");
             });
         });
 
         app.post("/notification/start/{readerName}", ctx -> {
             String readerName = ctx.pathParam("readerName");
             ReaderManager.ManagedReader managedReader = readerManager.getReader(readerName);
+            log.info("Notification start requested for {}", readerName);
             
             if (managedReader == null) {
                 ctx.status(404).json(Map.of(
@@ -105,6 +135,7 @@ public class Main {
                 boolean started = managedReader.startNotificationMode(port);
                 
                 if (!started) {
+                    log.warn("Failed to start notification mode for {} on port {}", readerName, port);
                     ctx.status(500).json(Map.of(
                         "success", false,
                         "error", "Failed to start notification mode"
@@ -130,6 +161,7 @@ public class Main {
         app.post("/notification/stop/{readerName}", ctx -> {
             String readerName = ctx.pathParam("readerName");
             ReaderManager.ManagedReader managedReader = readerManager.getReader(readerName);
+            log.info("Notification stop requested for {}", readerName);
             
             if (managedReader == null) {
                 ctx.status(404).json(Map.of(
@@ -151,6 +183,7 @@ public class Main {
                 boolean stopped = managedReader.stopNotificationMode();
                 
                 if (!stopped) {
+                    log.warn("Failed to stop notification mode for {}", readerName);
                     ctx.status(500).json(Map.of(
                         "success", false,
                         "error", "Failed to stop notification mode"
@@ -174,6 +207,7 @@ public class Main {
         app.get("/notification/events/{readerName}", ctx -> {
             String readerName = ctx.pathParam("readerName");
             ReaderManager.ManagedReader managedReader = readerManager.getReader(readerName);
+            log.debug("Polling notification events for {}", readerName);
             
             if (managedReader == null || !managedReader.isNotificationModeActive()) {
                 ctx.status(404).json(Map.of(
@@ -185,6 +219,9 @@ public class Main {
 
             NotificationListener listener = managedReader.getNotificationListener();
             List<NotificationListener.NotificationEvent> events = listener.pollEvents();
+
+            log.debug("Notification poll for {} returned {} events (listener connected={})", 
+                readerName, events.size(), listener.isConnected());
 
             ctx.json(Map.of(
                 "success", true,
@@ -223,6 +260,7 @@ public class Main {
 
         app.get("/readers", ctx -> {
             List<Map<String, Object>> readerList = new ArrayList<>();
+            log.debug("Listing registered readers");
             
             for (Map.Entry<String, ReaderManager.ManagedReader> entry : readerManager.getAllReaders().entrySet()) {
                 ReaderManager.ManagedReader managedReader = entry.getValue();
@@ -236,6 +274,7 @@ public class Main {
                     isConnected = module.isConnected();
                     connectionStatus = isConnected ? "connected" : "disconnected";
                 } catch (Exception e) {
+                    log.error("Failed to query connection status for {}: {}", config.getName(), e.getMessage());
                     connectionStatus = "error: " + e.getMessage();
                 }
                 
@@ -265,6 +304,7 @@ public class Main {
 
         app.get("/testread/{readerName}", ctx -> {
             String readerName = ctx.pathParam("readerName");
+            log.info("/testread invoked for {}", readerName);
             ReaderManager.ManagedReader managedReader = readerManager.getReader(readerName);
             if (managedReader == null) {
                 ctx.status(404).result("Reader not found");
@@ -279,26 +319,26 @@ public class Main {
 
                 // do this code 3 times
                 //for (int d = 0; d < 3; d++) {
-                    //System.out.println(reader.isConnected() ? ">>> Reader is connected." : "Reader is not connected.");
+                    //log.info(reader.isConnected() ? ">>> Reader is connected." : "Reader is not connected.");
 
                     int returnCode = reader.hm().inventory(true, inventoryParam);
-                    System.out.println("Reader last error state: "+reader.lastErrorStatusText());
+                    log.debug("Reader last error state: {}", reader.lastErrorStatusText());
                     if (returnCode != ErrorCode.Ok) {
                         ctx.status(500).result("Inventory command failed: " + returnCode);
                         return;
                     }
 
-                    System.out.println("Inventory successful: " + reader.hm().itemCount() + " items found.");
+                    log.info("Inventory successful: {} items found.", reader.hm().itemCount());
                     for (int i = 0; i < reader.hm().itemCount(); i++) {
                         TagItem tagItem =  reader.hm().tagItem(i);
                         if (!tagItem.isValid()) {
-                            System.out.println("Invalid tag item at index " + i);
+                            log.warn("Invalid tag item at index {}", i);
                             continue;
                         }
-                        System.out.println("Tag " + (i + 1) + ": " + tagItem.iddToHexString());
+                        log.debug("Tag {}: {}", i + 1, tagItem.iddToHexString());
                         //RssiItem
                         tagItem.rssiValues().forEach(rssiItem -> {
-                            System.out.println(" with Antenna "+rssiItem.antennaNumber() + ": " + rssiItem.rssi() + " dBm");
+                            log.debug(" with Antenna {}: {} dBm", rssiItem.antennaNumber(), rssiItem.rssi());
 
                         });
                         
@@ -306,16 +346,16 @@ public class Main {
                         
                         
                         if (tagHandler == null) {
-                            System.out.println("Failed to create tag handler for tag at index " + i);
+                            log.warn("Failed to create tag handler for tag at index {}", i);
                             continue;
                         } else if (tagHandler.tagHandlerType() == ThBase.TypeEpcClass1Gen2 ){
-                            System.out.println("Tag handler type: EPC Class 1 Gen 2");
+                            log.debug("Tag handler type: EPC Class 1 Gen 2");
                             ThEpcClass1Gen2 epcTag = (ThEpcClass1Gen2) tagHandler;
                             if(epcTag.isEpcAndTid()) {
-                                System.out.println("EPC: " + epcTag.epcToHexString());
-                                System.out.println("TID: " + epcTag.tidToHexString());
+                                log.debug("EPC: {}", epcTag.epcToHexString());
+                                log.debug("TID: {}", epcTag.tidToHexString());
                             } else {
-                                System.out.println("EPC: " + epcTag.epcToHexString());
+                                log.debug("EPC: {}", epcTag.epcToHexString());
 
                             }
                             Thread.sleep(200); // Small delay to ensure tag is ready for next command
@@ -325,10 +365,10 @@ public class Main {
                             Bank bank = Bank.Epc; // Memory bank to read from
                             DataBuffer data = new DataBuffer(); // Each block is 2 bytes
                             returnCode = epcTag.readMultipleBlocks(bank, startBlock, blocksToRead, data);
-                            System.out.println("Read multiple blocks return code: " + returnCode);
-                            System.out.println("Last error state: " + reader.lastErrorStatusText());
-                            System.out.println("Last tag ISO error: " + tagHandler.lastIsoError());
-                            System.out.println(data.toHexString(" "));
+                            log.debug("Read multiple blocks return code: {}", returnCode);
+                            log.debug("Last error state: {}", reader.lastErrorStatusText());
+                            log.debug("Last tag ISO error: {}", tagHandler.lastIsoError());
+                            log.debug("Read data: {}", data.toHexString(" "));
 
 
                             Thread.sleep(200); // Small delay to ensure tag is ready for next command
@@ -337,17 +377,17 @@ public class Main {
                             DataBuffer dataToWrite = new DataBuffer(newEpc);
                             returnCode = epcTag.writeMultipleBlocks(bank, 2, 3, dataToWrite);
 
-                            System.out.println("Write multiple blocks return code: " + returnCode);
-                            System.out.println("Last error state: " + reader.lastErrorStatusText());
-                            System.out.println("Last tag ISO error: " + tagHandler.lastIsoError());
-                            System.out.println(dataToWrite.toHexString(" "));
+                            log.debug("Write multiple blocks return code: {}", returnCode);
+                            log.debug("Last error state: {}", reader.lastErrorStatusText());
+                            log.debug("Last tag ISO error: {}", tagHandler.lastIsoError());
+                            log.debug("Write data: {}", dataToWrite.toHexString(" "));
                             
 
                         } else {
-                            System.out.println("Tag handler type: " + tagHandler.tagHandlerType());
+                            log.debug("Tag handler type: {}", tagHandler.tagHandlerType());
                         }
 
-                        System.out.println("Transponder name:  "+tagHandler.transponderName());
+                        log.debug("Transponder name: {}", tagHandler.transponderName());
 
                     }
 
@@ -356,6 +396,7 @@ public class Main {
 
                 ctx.json(new String[]{"done"});
             } catch (Exception e) {
+                log.error("/testread failed for {}", readerName, e);
                 ctx.status(500).result("Error: " + e.getMessage());
                 //e.printStackTrace();
             }
@@ -366,6 +407,7 @@ public class Main {
 
         app.get("/inventory/{readerName}", ctx -> {
             String readerName = ctx.pathParam("readerName");
+            log.info("Inventory requested for {}", readerName);
             ReaderManager.ManagedReader managedReader = readerManager.getReader(readerName);
             if (managedReader == null) {
                 ctx.status(404).json(new InventoryResponse(false, "Reader not found", 0, null));
@@ -373,6 +415,8 @@ public class Main {
             }
 
             try {
+                long inventoryStartNanos = System.nanoTime();
+
                 // Use executeWithReconnect to handle connection failures automatically
                 List<Tag> tags = managedReader.executeWithReconnect(reader -> {
                     InventoryParam inventoryParam = new InventoryParam();
@@ -428,6 +472,9 @@ public class Main {
                     return result;
                 });
 
+                long inventoryDurationMs = (System.nanoTime() - inventoryStartNanos) / 1_000_000;
+                log.info("Inventory for {} returned {} tags in {} ms", readerName, tags.size(), inventoryDurationMs);
+
                 ctx.json(new InventoryResponse(true, "Inventory successful", tags.size(), tags));
             } catch (ReaderManager.ReaderOperationException e) {
                 log.error("Inventory failed for {}", readerName, e);
@@ -436,10 +483,12 @@ public class Main {
         });
 
         app.post("/secure/{readerName}", ctx -> {
+            log.info("Secure requested for {}", ctx.pathParam("readerName"));
             handleSecurityOperationWithReconnect(ctx, readerManager, true);
         });
 
         app.post("/unsecure/{readerName}", ctx -> {
+            log.info("Unsecure requested for {}", ctx.pathParam("readerName"));
             handleSecurityOperationWithReconnect(ctx, readerManager, false);
         });
 
@@ -465,6 +514,9 @@ public class Main {
                 format = ConfigLoader.getDefaultTagFormat();
             }
 
+            log.info("Initialize requested for reader {} with mediaId {} format {} secured {}", 
+                readerName, mediaId, format, secured);
+
             ReaderManager.ManagedReader managedReader = readerManager.getReader(readerName);
             if (managedReader == null) {
                 ctx.status(404).json(Map.of(
@@ -484,6 +536,9 @@ public class Main {
                 managedReader.executeWithReconnect(reader -> {
                     initializeTag(reader, managedReader.getConfig(), newTag);
                 });
+
+                log.info("Initialized tag on reader {}: epc={} mediaId={} format={} secured={}",
+                    readerName, newTag.getEpcHexString(), mediaId, format, secured);
 
                 ctx.json(Map.of(
                     "success", true,
@@ -545,6 +600,8 @@ public class Main {
                 return;
             }
 
+            log.info("Edit requested for reader {} with EPC {} -> mediaId {}", readerName, epcHex, newMediaId);
+
             try {
                 Tag oldTag = TagFactory.createTagFromHexString(epcHex);
                 
@@ -565,6 +622,8 @@ public class Main {
                 managedReader.executeWithReconnect(reader -> {
                     editTag(reader, managedReader.getConfig(), epcHex, oldTag, newTag);
                 });
+
+                log.info("Edited tag on reader {}: {} -> {} (mediaId={})", readerName, epcHex, newTag.getEpcHexString(), newMediaId);
 
                 ctx.json(Map.of(
                     "success", true,
@@ -609,12 +668,17 @@ public class Main {
                 return;
             }
 
+            log.info("Clear requested for reader {} and EPC {}", readerName, epcHex);
+
             try {
                 Tag oldTag = TagFactory.createTagFromHexString(epcHex);
                 
                 Map<String, String> result = managedReader.executeWithReconnect(reader -> {
                     return clearTag(reader, managedReader.getConfig(), epcHex, oldTag);
                 });
+
+                log.info("Cleared tag on reader {}: oldEpc={} newEpc={} newPc={} tid={}", 
+                    readerName, epcHex, result.get("newEpc"), result.get("newPc"), result.get("tid"));
 
                 ctx.json(Map.of(
                     "success", true,
@@ -655,12 +719,16 @@ public class Main {
                 return;
             }
 
+            log.info("Analyze requested for reader {} and EPC {}", readerName, epcHex);
+
             try {
                 Tag theoreticalTag = TagFactory.createTagFromHexString(epcHex);
                 
                 Map<String, Object> analysis = managedReader.executeWithReconnect(reader -> {
                     return analyzeTag(reader, managedReader.getConfig(), epcHex, theoreticalTag);
                 });
+
+                log.info("Analyze completed for reader {} and EPC {} (tagType={})", readerName, epcHex, theoreticalTag.getTagType());
 
                 ctx.json(Map.of(
                     "success", true,
@@ -708,8 +776,18 @@ public class Main {
 
         try {
             Tag tag = TagFactory.createTagFromHexString(epcHex);
+            boolean hasPassword = false;
+            for (byte b : tag.getAccessPassword()) {
+                if (b != 0) {
+                    hasPassword = true;
+                    break;
+                }
+            }
+            log.info("Security change requested for reader {} (secure={} tagType={} hasPassword={})", 
+                readerName, secure, tag.getTagType(), hasPassword);
             
             if (tag instanceof RawTag) {
+                log.warn("Security change requested for raw tag {} - rejecting", epcHex);
                 ctx.status(400).json(Map.of(
                     "success", false,
                     "error", "Tag format not recognized - cannot modify security on raw tags"
@@ -722,6 +800,8 @@ public class Main {
             managedReader.executeWithReconnect(reader -> {
                 return modifySecurityBit(reader, managedReader.getConfig(), epcHex, tag);
             });
+
+            log.info("Tag {} security updated for reader {} (secured={})", epcHex, readerName, secure);
 
             ctx.json(Map.of(
                 "success", true,
@@ -909,7 +989,7 @@ public class Main {
         );
 
         if (returnCode != ErrorCode.Ok) {
-            System.err.println("Warning: Failed to unlock memory banks: " + reader.lastErrorStatusText());
+            log.warn("Warning: Failed to unlock memory banks: {}", reader.lastErrorStatusText());
             // Continue anyway - tag might not be locked
         }
 
@@ -1075,7 +1155,7 @@ public class Main {
             );
 
             if (returnCode != ErrorCode.Ok) {
-                System.err.println("Warning: Failed to unlock memory banks: " + reader.lastErrorStatusText());
+                log.warn("Warning: Failed to unlock memory banks: {}", reader.lastErrorStatusText());
                 // Continue anyway - tag might not be locked
             }
         }
@@ -1224,10 +1304,11 @@ public class Main {
         Map<String, Object> tidBank = new java.util.LinkedHashMap<>();
         tidBank.put("readSuccess", returnCode == ErrorCode.Ok);
         if (returnCode == ErrorCode.Ok) {
-            tidBank.put("data", bytesToHex(tidData.data()));
-            tidBank.put("length", tidData.data().length);
+            tidBank.put("lengthBytes", tidData.data().length);
+            tidBank.put("tidHex", bytesToHex(tidData.data()));
         } else {
             tidBank.put("error", reader.lastErrorStatusText());
+            log.warn("TID read failed for {}: {}", epcHex, reader.lastErrorStatusText());
         }
         analysis.put("tidBank", tidBank);
         
@@ -1450,6 +1531,8 @@ public class Main {
         // For BRTag, dynamic blocks are PC (word address 1)
         // For DE290/DE6 tags, dynamic blocks are in EPC memory at calculated position
         DataBuffer accessPwdData = hasPassword ? new DataBuffer(accessPwd) : null;
+        log.debug("Modifying security bit for {} (startBlock={} blocks={} hasPassword={})", 
+            epcHex, startBlock, dynamicBlocks.length / 2, hasPassword);
         // Even if the tag is unlocked, sending a potential password is harmless
         returnCode = writeWithRetry(
             epcTag,
@@ -1487,10 +1570,10 @@ public class Main {
     private static boolean testNativeLibLoading() {
         try {
             System.loadLibrary("fedm-funit"); // as an example
-            System.out.println("Native library fedm-funit loaded successfully.");
+            log.info("Native library fedm-funit loaded successfully.");
             return true;
         } catch (UnsatisfiedLinkError e) {
-            System.err.println("Failed to load native library fedm-funit: " + e.getMessage());
+            log.error("Failed to load native library fedm-funit", e);
             return false;
         }
     }

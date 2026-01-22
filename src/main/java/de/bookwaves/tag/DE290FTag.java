@@ -1,12 +1,15 @@
 package de.bookwaves.tag;
 
 import java.util.Arrays;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * POJO representing a DE290F format tag for "Passive Fernleihe" (interlibrary loans).
  * Introduced 2023, extends DE290 with different header and flexible media ID encoding.
  */
 public class DE290FTag extends DE290Tag {
+    private static final Logger log = LoggerFactory.getLogger(DE290FTag.class);
     
     public static final byte[] DE290F_HEADER = new byte[] { (byte) 0x19, (byte) 0xE9, (byte) 0xF8, (byte) 0x77 };
     
@@ -121,6 +124,7 @@ public class DE290FTag extends DE290Tag {
 
         updatePCLength(newEpc.length);
         epc = newEpc;
+        log.debug("Updated DE290F mediaId '{}' with idType 0x{}", mediaIdString, String.format("%02X", idType));
     }
 
     private void encodeNumericId(String numericStr, byte[] target) {
@@ -132,6 +136,7 @@ public class DE290FTag extends DE290Tag {
             }
             System.arraycopy(longBytes, 1, target, 0, 7);
         } catch (NumberFormatException e) {
+            log.warn("Invalid numeric media ID '{}' for DE290F", numericStr);
             throw new IllegalArgumentException("Invalid numeric media ID: " + numericStr, e);
         }
     }
@@ -170,5 +175,6 @@ public class DE290FTag extends DE290Tag {
             throw new IllegalArgumentException(
                 String.format("DE290F format requires numeric media ID (got: '%s')", mediaId));
         }
+        log.debug("Validated DE290F mediaId '{}'", mediaId);
     }
 }

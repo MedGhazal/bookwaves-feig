@@ -1,6 +1,8 @@
 package de.bookwaves.tag;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -13,6 +15,8 @@ import java.util.Arrays;
  * Introduced 2021, with backwards compatibility for earlier tag formats.
  */
 public class DE290Tag extends Tag {
+
+    private static final Logger log = LoggerFactory.getLogger(DE290Tag.class);
 
     public static final byte[] DE290_HEADER = new byte[] { (byte) 0x19, (byte) 0xE9, (byte) 0xF8, (byte) 0x71 };
     public static final byte[] CD290_HEADER = new byte[] { (byte) 0x13, (byte) 0x81, (byte) 0xF8, (byte) 0x71 };
@@ -73,6 +77,7 @@ public class DE290Tag extends Tag {
         // Update the length of the EPC in the PC
         updatePCLength(newEpc.length);
         epc = newEpc;
+        log.debug("Updated {} mediaId to {} (secured={})", variant, mediaIdString, isSecured());
     }
 
     @Override
@@ -83,6 +88,7 @@ public class DE290Tag extends Tag {
     @Override
     public void setSecured(boolean secured) {
         epc[15] = (byte) ((epc[15] & 0b11111110) | (secured ? 1 : 0));
+        log.debug("Set {} secured={} (byte15=0x{})", variant, secured, String.format("%02X", epc[15]));
     }
 
     @Override
@@ -234,5 +240,6 @@ public class DE290Tag extends Tag {
                 String.format("%s format requires numeric media ID (got: '%s')", 
                     variant.name(), mediaId));
         }
+        log.debug("Validated {} mediaId '{}'", variant, mediaId);
     }
 }

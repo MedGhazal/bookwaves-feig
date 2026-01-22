@@ -2,11 +2,14 @@ package de.bookwaves;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Configuration class representing an RFID reader.
  */
 public class ReaderConfig {
+    private static final Logger log = LoggerFactory.getLogger(ReaderConfig.class);
     private String name;
     private String address;
     private int port;
@@ -77,8 +80,11 @@ public class ReaderConfig {
         for (int antenna : antennas) {
             if (antenna >= 1 && antenna <= 8) {
                 mask |= (1 << (antenna - 1));
+            } else {
+                log.warn("Ignoring invalid antenna index {} for reader {}", antenna, name);
             }
         }
+        log.debug("Computed antenna mask 0x{} for reader {} from {}", String.format("%02X", mask), name, antennas);
         return (byte) mask;
     }
 }

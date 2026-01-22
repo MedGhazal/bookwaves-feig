@@ -1,10 +1,15 @@
 package de.bookwaves.tag;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Raw tag representation for unknown or generic RFID tags.
  * Provides minimal functionality without format-specific interpretation.
  */
 public class RawTag extends Tag {
+
+    private static final Logger log = LoggerFactory.getLogger(RawTag.class);
 
     public RawTag(byte[] pc, byte[] epc) {
         super(pc != null ? pc : new byte[2], epc); // Ensure PC is never null
@@ -28,6 +33,7 @@ public class RawTag extends Tag {
     public void setMediaId(String mediaIdString) {
         // Parse hex string to bytes
         if (mediaIdString.length() % 2 != 0) {
+            log.warn("RawTag mediaId must be even-length hex (got length {})", mediaIdString.length());
             throw new IllegalArgumentException("Media ID must be even-length hex string");
         }
         
@@ -43,6 +49,7 @@ public class RawTag extends Tag {
         pc[0] = newPC0;
         
         epc = newEpc;
+        log.debug("Updated RawTag EPC to {} (pc=0x{})", getEpcHexString(), String.format("%02X%02X", pc[0], pc[1]));
     }
 
     @Override

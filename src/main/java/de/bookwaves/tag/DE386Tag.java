@@ -1,6 +1,8 @@
 package de.bookwaves.tag;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -14,6 +16,8 @@ import java.util.Arrays;
  * Padding between header and media ID is flexible to accommodate variable-length IDs.
  */
 public class DE386Tag extends Tag {
+
+    private static final Logger log = LoggerFactory.getLogger(DE386Tag.class);
 
     public static final byte[] DE386_HEADER = new byte[] { (byte) 0x19, (byte) 0xEA, (byte) 0xF3, (byte) 0x21 };
     
@@ -89,6 +93,7 @@ public class DE386Tag extends Tag {
         
         updatePCLength(newEpc.length);
         epc = newEpc;
+        log.debug("Updated DE386 mediaId to '{}' (secured={})", mediaIdString, secured);
     }
 
     @Override
@@ -99,6 +104,7 @@ public class DE386Tag extends Tag {
     @Override
     public void setSecured(boolean secured) {
         epc[15] = (byte) ((epc[15] & 0b11111110) | (secured ? 1 : 0));
+        log.debug("Set DE386 secured={} (byte 15 now 0x{})", secured, String.format("%02X", epc[15]));
     }
 
     /**
@@ -114,6 +120,7 @@ public class DE386Tag extends Tag {
      */
     public void setVersion(byte version) {
         epc[14] = version;
+        log.debug("Set DE386 version byte to 0x{}", String.format("%02X", version));
     }
 
     @Override
@@ -224,5 +231,6 @@ public class DE386Tag extends Tag {
                 "DE386 format media ID too long: maximum %d characters, got %d", 
                 MAX_MEDIA_ID_LENGTH, mediaId.length()));
         }
+        log.debug("Validated DE386 mediaId '{}'", mediaId);
     }
 }

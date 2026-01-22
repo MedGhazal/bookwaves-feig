@@ -14,6 +14,12 @@ tagPasswords:
 # Default tag format for initialization (DE290, CD290, DE6, DE290F, or DE386)
 defaultTagFormat: DE290
 
+# Application log level (trace, debug, info, warn, error)
+logLevel: INFO
+
+# Allow all origins for CORS (defaults to false)
+corsAnyHost: false
+
 # Reader configurations
 readers:
   - name: reader1

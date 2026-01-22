@@ -32,6 +32,7 @@ public class TagFactory {
      */
     public static void setPasswordConfiguration(Map<String, String> passwords) {
         passwordConfig = passwords != null ? new HashMap<>(passwords) : new HashMap<>();
+        log.info("Password configuration set with {} entries", passwordConfig.size());
         validatePasswordConfiguration();
     }
 
@@ -74,6 +75,7 @@ public class TagFactory {
     public static Tag createTag(byte[] pc, byte[] epc) {
         if (epc == null || epc.length < 1) {
             // Provide safe defaults for completely invalid tags
+            log.warn("Received null/empty EPC while creating tag; returning RawTag");
             return new RawTag(
                 pc != null ? pc : new byte[2], 
                 epc != null ? epc : new byte[0]
@@ -81,6 +83,7 @@ public class TagFactory {
         }
 
         if (epc.length < 4) {
+            log.warn("EPC too short ({} bytes) to determine format; returning RawTag", epc.length);
             return new RawTag(pc != null ? pc : new byte[2], epc);
         }
 
@@ -88,18 +91,21 @@ public class TagFactory {
         byte[] header = Arrays.copyOfRange(epc, 0, 4);
         
         if (Arrays.equals(header, DE386Tag.DE386_HEADER)) {
+            log.debug("Detected DE386 tag from header");
             return new DE386Tag(pc, epc, 
                 getPassword("DE386Tag", "access", "CHANGE-ME-IN-YAML-ACCESS"),
                 getPassword("DE386Tag", "kill", "CHANGE-ME-IN-YAML-KILL"));
         }
         
         if (Arrays.equals(header, DE290FTag.DE290F_HEADER)) {
+            log.debug("Detected DE290F tag from header");
             return new DE290FTag(pc, epc, 
                 getPassword("DE290Tag", "access", "CHANGE-ME-IN-YAML-ACCESS"),
                 getPassword("DE290Tag", "kill", "CHANGE-ME-IN-YAML-KILL"));
         }
         
         if (Arrays.equals(header, DE6Tag.DE6_HEADER)) {
+            log.debug("Detected DE6 tag from header");
             return new DE6Tag(pc, epc, 
                 getPassword("DE6Tag", "access", "CHANGE-ME-IN-YAML-ACCESS"),
                 getPassword("DE6Tag", "kill", "CHANGE-ME-IN-YAML-KILL"));
@@ -107,16 +113,19 @@ public class TagFactory {
         
         if (Arrays.equals(header, DE290Tag.DE290_HEADER) || 
             Arrays.equals(header, DE290Tag.CD290_HEADER)) {
+            log.debug("Detected DE290/CD290 tag from header");
             return new DE290Tag(pc, epc,
                 getPassword("DE290Tag", "access", "CHANGE-ME-IN-YAML-ACCESS"),
                 getPassword("DE290Tag", "kill", "CHANGE-ME-IN-YAML-KILL"));
         }
 
         if (epc[0] == BRTag.BR_HEADER && BRTag.isBRTag(epc)) {
+            log.debug("Detected BR tag from header");
             return new BRTag(pc, epc, 
                 getPassword("BRTag", "secret", "CHANGE-ME-IN-YAML-SECRET"));
         }
 
+        log.debug("Unknown EPC header {}, defaulting to RawTag", bytesToHexPrefix(epc));
         return new RawTag(pc != null ? pc : new byte[2], epc);
     }
 
@@ -148,5 +157,14 @@ public class TagFactory {
         pc[0] = (byte) ((epc.length / 2) << 3);
 
         return createTag(pc, epc);
+    }
+
+    private static String bytesToHexPrefix(byte[] epc) {
+        int len = Math.min(epc.length, 4);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < len; i++) {
+            sb.append(String.format("%02X", epc[i]));
+        }
+        return sb.toString();
     }
 }

@@ -4,12 +4,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Arrays;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * POJO representing a DE6 format tag for external institutions.
  * Uses ISIL DE-6 header with custom password calculation.
  */
 public class DE6Tag extends Tag {
+
+    private static final Logger log = LoggerFactory.getLogger(DE6Tag.class);
 
     public static final byte[] DE6_HEADER = new byte[] { (byte) 0x19, (byte) 0xED, (byte) 0x00, (byte) 0x01 };
     
@@ -42,6 +46,7 @@ public class DE6Tag extends Tag {
         // Fix PC to 0x4400 (specific for DE6)
         pc[0] = (byte) 0x44;
         pc[1] = (byte) 0x00;
+        log.debug("Updated DE6 mediaId to {} (secured={})", mediaIdString, isSecured());
     }
 
     @Override
@@ -52,6 +57,7 @@ public class DE6Tag extends Tag {
     @Override
     public void setSecured(boolean secured) {
         epc[15] = (byte) ((epc[15] & 0b11111110) | (secured ? 1 : 0));
+        log.debug("Set DE6 secured={} (byte15=0x{})", secured, String.format("%02X", epc[15]));
     }
 
     @Override
@@ -130,5 +136,6 @@ public class DE6Tag extends Tag {
             throw new IllegalArgumentException(
                 String.format("DE6 format requires numeric media ID (got: '%s')", mediaId));
         }
+        log.debug("Validated DE6 mediaId '{}'", mediaId);
     }
 }

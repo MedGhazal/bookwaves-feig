@@ -2,12 +2,16 @@ package de.bookwaves.tag;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * URN Code40 encoding/decoding utility.
  * Encodes 40 characters (A-Z, 0-9, space, -, ., :) into compact binary format.
  */
 class URNCode40 {
+
+    private static final Logger log = LoggerFactory.getLogger(URNCode40.class);
 
     private static final Map<Character, Integer> ENCODE_MAP = Map.ofEntries(
         Map.entry(' ', 0), Map.entry('A', 1), Map.entry('B', 2), Map.entry('C', 3),
@@ -45,6 +49,7 @@ class URNCode40 {
 
             Integer charValue = ENCODE_MAP.get(input.charAt(i));
             if (charValue == null) {
+                log.warn("Encountered non-Code40 character '{}' in input '{}'", input.charAt(i), input);
                 throw new IllegalArgumentException("Character not in Code40 table: " + input.charAt(i));
             }
 
@@ -59,6 +64,7 @@ class URNCode40 {
 
     public static String decode(byte[] input) {
         if (input == null || input.length % 2 != 0) {
+            log.warn("Attempted to decode Code40 with invalid input length {}", input == null ? 0 : input.length);
             throw new IllegalArgumentException("Input must be even length");
         }
 
@@ -90,6 +96,9 @@ class URNCode40 {
             Character c3 = DECODE_MAP.get(char3);
             
             if (c1 == null || c2 == null || c3 == null) {
+                log.error("Invalid Code40 sequence produced values [{}, {}, {}] from bytes 0x{}{}", 
+                    char1, char2, char3,
+                    String.format("%02X", input[i]), String.format("%02X", input[i + 1]));
                 throw new IllegalStateException(String.format(
                     "Invalid Code40 sequence: %d,%d,%d from value 0x%04X",
                     char1, char2, char3, (higher * 256 + lower)

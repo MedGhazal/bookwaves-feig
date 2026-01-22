@@ -76,14 +76,17 @@ public class ReaderManager {
         public synchronized ReaderModule getModule() throws Exception {
             if (readerModule == null) {
                 readerModule = new ReaderModule(RequestMode.UniDirectional);
+                log.debug("Created ReaderModule for {} in UniDirectional mode", config.getName());
             }
 
             if (!readerModule.isConnected()) {
                 // Try to reconnect first, fall back to fresh connection if that fails
+                log.debug("Attempting reconnect to reader {}", config.getName());
                 int returnCode = readerModule.reconnect();
                 
                 if (returnCode != ErrorCode.Ok) {
                     // Reconnect failed, try fresh connection
+                    log.info("Reconnect failed for {} (code {}), attempting fresh TCP connect", config.getName(), returnCode);
                     Connector connector = Connector.createTcpConnector(config.getAddress(), config.getPort());
                     connector.setTcpConnectTimeout(5000);
                     returnCode = readerModule.connect(connector);
@@ -121,6 +124,7 @@ public class ReaderManager {
             // Create fresh ReaderModule instance
             log.info("Creating new ReaderModule instance for {}", config.getName());
             readerModule = new ReaderModule(RequestMode.UniDirectional);
+                log.debug("New ReaderModule created after forced disconnect for {}", config.getName());
             
             // Establish fresh connection
             log.info("Attempting fresh connection to {}", config.getName());
@@ -155,6 +159,9 @@ public class ReaderManager {
             for (int attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
                 try {
                     ReaderModule reader = getModule();
+                    if (attempt > 1) {
+                        log.info("Recovered connection to {} on attempt {}", config.getName(), attempt);
+                    }
                     return operation.execute(reader);
                 } catch (Exception e) {
                     lastException = e;
@@ -162,7 +169,7 @@ public class ReaderManager {
                     
                     // Check if it's a connection error
                     if (isConnectionError(errorMsg)) {
-                        log.error("Connection error on attempt {}/{} for {}: {}", 
+                        log.warn("Connection error on attempt {}/{} for {}: {}", 
                             attempt, MAX_RECONNECT_ATTEMPTS, config.getName(), errorMsg);
                         
                         if (attempt < MAX_RECONNECT_ATTEMPTS) {
@@ -173,7 +180,7 @@ public class ReaderManager {
                                 Thread.currentThread().interrupt();
                                 throw new ReaderOperationException("Operation interrupted during reconnection");
                             } catch (Exception reconnectError) {
-                                log.error("Reconnection failed: {}", reconnectError.getMessage());
+                                log.error("Reconnection failed for {}: {}", config.getName(), reconnectError.getMessage());
                             }
                         }
                     } else {
@@ -225,6 +232,7 @@ public class ReaderManager {
 
         public synchronized boolean startNotificationMode(int port) throws Exception {
             if (notificationListener != null) {
+                log.debug("Notification already active for {} on port {}", config.getName(), listenerPort);
                 return false; // Already running
             }
 
@@ -267,6 +275,7 @@ public class ReaderManager {
 
         public synchronized boolean stopNotificationMode() {
             if (notificationListener == null) {
+                log.debug("Notification stop requested but none active for {}", config.getName());
                 return false; // Not running
             }
 

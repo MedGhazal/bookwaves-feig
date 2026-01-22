@@ -2,12 +2,15 @@ package de.bookwaves.tag;
 
 import java.util.List;
 import static java.util.Arrays.asList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Six-bit ASCII encoding helper (used by AIS/Smartfreq).
  * Encodes 64 characters into 6-bit values.
  */
 class SixBitAscii {
+    private static final Logger log = LoggerFactory.getLogger(SixBitAscii.class);
     
     private static final List<Character> ENCODING_TABLE = asList(
         '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O',
@@ -19,6 +22,7 @@ class SixBitAscii {
     public static byte encode(char c) {
         int index = ENCODING_TABLE.indexOf(c);
         if (index < 0) {
+            log.warn("Character '{}' not in SixBit ASCII table", c);
             throw new IllegalArgumentException("Character '" + c + "' not in SixBit ASCII");
         }
         return (byte) index;
@@ -27,6 +31,7 @@ class SixBitAscii {
     public static char decode(byte b) {
         int index = b & 0xFF;
         if (index >= ENCODING_TABLE.size()) {
+            log.warn("Byte 0x{} not decodable in SixBit ASCII table", Integer.toHexString(index));
             throw new IllegalArgumentException("Byte 0x" + Integer.toHexString(index) + " not in SixBit ASCII");
         }
         return ENCODING_TABLE.get(index);
