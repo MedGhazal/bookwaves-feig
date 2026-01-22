@@ -1,19 +1,22 @@
 FROM maven:3-eclipse-temurin-21-noble AS build
 WORKDIR /app
 
-# Copy project files
+# Copy dependency files
 COPY pom.xml .
-COPY src ./src
 COPY libs ./libs
 
-# Build and copy dependencies
-RUN mvn clean compile dependency:copy-dependencies -DskipTests
+# Download external dependencies
+RUN mvn -B dependency:copy-dependencies -DskipTests
+
+# Copy sources and build
+COPY src ./src
+RUN mvn -B compile -DskipTests
 
 FROM eclipse-temurin:21-jre-noble
 
 # Install OpenSSL for TLS features (required by Feig SDK)
 RUN apt-get update && \
-    apt-get install -y libssl3 && \
+    apt-get install -y --no-install-recommends libssl3 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
