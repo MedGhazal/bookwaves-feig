@@ -6,6 +6,6 @@ services:
       - "7070:7070"
     volumes:
       # REQUIRED: Mount your configuration file
-      # Copy config.yaml.example to config.yaml and customize before running
+      # Copy config.example.yaml to config.yaml and customize before running
       - ./config.yaml:/app/config/config.yaml:ro
     restart: unless-stopped

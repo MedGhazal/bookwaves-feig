@@ -33,6 +33,6 @@ old
 config.yaml
 
 # Keep example configuration
-!config.yaml.example
+!config.example.yaml
 
 NOTES.md

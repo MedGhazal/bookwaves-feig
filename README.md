@@ -23,7 +23,7 @@ The easiest way to run the service is using the pre-built Docker image:
 
 ```bash
 # Copy the example configuration
-cp config.yaml.example config.yaml
+cp config.example.yaml config.yaml
 
 # Edit config.yaml with your reader details and passwords
 ```
@@ -51,7 +51,7 @@ The service will be available at `http://localhost:7070`
 
 ### Configuration File Format
 
-See `config.yaml.example` for the complete configuration template.
+See `config.example.yaml` for the complete configuration template.
 
 **Tag passwords by type:**
 - `DE290Tag.access` / `DE290Tag.kill` - For DE290 tags
@@ -524,7 +524,7 @@ Before using the devcontainer, you must obtain the Feig SDK files:
 
 4. **Create your configuration**:
    ```bash
-   cp config.yaml.example config.yaml
+   cp config.example.yaml config.yaml
    # Edit config.yaml with your reader settings
    ```
 
