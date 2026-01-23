@@ -1,6 +1,6 @@
 # Feig RFID Reader Service
 
-A Java-based RFID reader service using the Feig SDK, providing REST API endpoints for tag operations and multi-reader management.
+A Java-based RFID reader service using the Feig SDK, providing REST API endpoints for tag operations and multi-reader management. It can be used as a middleware for [BookWaves](https://github.com/lukaslerche/bookwaves).
 
 ## Features
 
