@@ -10,8 +10,12 @@ tagPasswords:
   DE290Tag.kill: "CHANGE-ME"
   DE386Tag.access: "CHANGE-ME"
   DE386Tag.kill: "CHANGE-ME"
+  DE385Tag.access: "CHANGE-ME"
+  DE385Tag.kill: "CHANGE-ME"
+  DELAN1Tag.access: "CHANGE-ME"
+  DELAN1Tag.kill: "CHANGE-ME"
 
-# Default tag format for initialization (DE290, CD290, DE6, DE290F, or DE386)
+# Default tag format for initialization (DE290, CD290, DE6, DE290F, DE386, DE385, or DELAN1)
 defaultTagFormat: DE290
 
 # Application log level (trace, debug, info, warn, error)

@@ -5,7 +5,7 @@ A Java-based RFID reader service using the Feig SDK, providing REST API endpoint
 ## Features
 
 - **Multi-reader support** - Manage multiple RFID readers simultaneously
-- **Auto-detection** - Supports DE290, DE290F, DE386, DE6, and BR tag formats
+- **Auto-detection** - Supports DE290, DE290F, DE386, DE385, DELAN1, DE6, and BR tag formats
 - **Configurable passwords** - Per-tag-type password management
 - **Host & Notification modes** - Support for both polling and event-driven tag detection
 - **Tag initialization** - Write new tags with proper format and security
@@ -57,9 +57,11 @@ See `config.example.yaml` for the complete configuration template.
 - `DE290Tag.access` / `DE290Tag.kill` - For DE290 tags
 - `DE6Tag.access` / `DE6Tag.kill` - For DE6 tags
 - `DE386Tag.access` / `DE386Tag.kill` - For DE386 tags
+- `DE385Tag.access` / `DE385Tag.kill` - For DE385 tags
+- `DELAN1Tag.access` / `DELAN1Tag.kill` - For DELAN1 tags
 - `BRTag.secret` - For BR (Smartfreq) tags
 
-**Default tag format** - Used for tag initialization (DE290, DE6, DE290F, or DE386)
+**Default tag format** - Used for tag initialization (DE290, DE6, DE290F, DE386, DE385, or DELAN1)
 
 **Reader configurations:**
 - Name, IP address, port
@@ -77,6 +79,10 @@ tagPasswords:
   DE6Tag.kill: "EEFF0011"
   DE386Tag.access: "11223344"
   DE386Tag.kill: "55667788"
+  DE385Tag.access: "99AABBCC"
+  DE385Tag.kill: "DDEEFF00"
+  DELAN1Tag.access: "01020304"
+  DELAN1Tag.kill: "05060708"
   BRTag.secret: "secret-key"
 
 # Default tag format for initialization
@@ -193,7 +199,7 @@ Initialize a blank tag with specified format and media ID. Writes EPC, passwords
 
 **Query Parameters:**
 - `mediaId` (required) - Media identifier (format depends on tag type)
-- `format` (optional) - Tag format: DE290, DE6, DE290F, or DE386 (defaults to configured defaultTagFormat)
+- `format` (optional) - Tag format: DE290, DE6, DE290F, DE386, DE385, or DELAN1 (defaults to configured defaultTagFormat)
 - `secured` (optional) - Security bit value: true or false (default: true)
 
 **Response:**
@@ -371,11 +377,13 @@ Perform deep analysis of a tag's memory banks, passwords, and security configura
 
 ## Supported Tag Types
 
-- **DE290Tag** - TU Dortmund university library standard
+- **DE290Tag** - TU Dortmund university library standard (uses numerical barcodes)
 - **DE290FTag** - TU Dortmund university library Fernleihe variant
 - **BRTag** - TU Dortmund university library legacy tags by Smartfreq
-- **DE386Tag** - RPTU Kaiserslautern university library standard
-- **DE6Tag** - ULB Münster library standard
+- **DE385Tag** - Trier university library (uses ASCII barcodes)
+- **DE386Tag** - RPTU Kaiserslautern university library (uses ASCII barcodes)
+- **DELAN1Tag** - RPTU Landau university library (uses ASCII barcodes)
+- **DE6Tag** - ULB Münster library standard (uses numerical barcodes)
 - **RawTag** - Fallback for unrecognized formats
 
 All tag types support automatic password lookup from configuration.

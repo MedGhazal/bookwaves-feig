@@ -90,11 +90,15 @@ public class TagFactory {
         // Check for DE290 variants (must check DE290F before DE290 due to overlapping headers)
         byte[] header = Arrays.copyOfRange(epc, 0, 4);
         
-        if (Arrays.equals(header, DE386Tag.DE386_HEADER)) {
-            log.debug("Detected DE386 tag from header");
-            return new DE386Tag(pc, epc, 
-                getPassword("DE386Tag", "access", "CHANGE-ME-IN-YAML-ACCESS"),
-                getPassword("DE386Tag", "kill", "CHANGE-ME-IN-YAML-KILL"));
+        if (Arrays.equals(header, ASCIITag.DE386_HEADER) ||
+            Arrays.equals(header, ASCIITag.DE385_HEADER) ||
+            Arrays.equals(header, ASCIITag.DELAN1_HEADER)) {
+            ASCIITag.HeaderType headerType = ASCIITag.HeaderType.fromHeader(header);
+            String passwordKeyPrefix = headerType.getPasswordKeyPrefix();
+            log.debug("Detected {} tag from header", headerType.getDisplayName());
+            return new ASCIITag(pc, epc,
+                getPassword(passwordKeyPrefix, "access", "CHANGE-ME-IN-YAML-ACCESS"),
+                getPassword(passwordKeyPrefix, "kill", "CHANGE-ME-IN-YAML-KILL"));
         }
         
         if (Arrays.equals(header, DE290FTag.DE290F_HEADER)) {

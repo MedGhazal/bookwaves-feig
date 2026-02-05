@@ -2,7 +2,7 @@ package de.bookwaves;
 
 import de.bookwaves.tag.DE290FTag;
 import de.bookwaves.tag.DE290Tag;
-import de.bookwaves.tag.DE386Tag;
+import de.bookwaves.tag.ASCIITag;
 import de.bookwaves.tag.DE6Tag;
 import de.bookwaves.tag.RawTag;
 import de.bookwaves.tag.Tag;
@@ -1690,7 +1690,7 @@ public class Main {
 
     /**
      * Create a new tag instance for initialization based on format string.
-     * Supports: DE290, CD290, DE6, DE290F, DE386
+    * Supports: DE290, CD290, DE6, DE290F, DE386, DE385, DELAN1
      */
     private static Tag createTagForInitialization(String format, String mediaId, boolean secured) {
         String formatUpper = format.toUpperCase();
@@ -1723,15 +1723,23 @@ public class Main {
                 return de290fTag;
                 
             case "DE386":
-                // DE386Tag accepts ASCII string media ID directly
-                DE386Tag de386Tag = new DE386Tag(mediaId, (byte) 0x00, secured,
+                return new ASCIITag(ASCIITag.HeaderType.DE386, mediaId, (byte) 0x00, secured,
                     TagFactory.getPasswordForType("DE386Tag", "access"),
                     TagFactory.getPasswordForType("DE386Tag", "kill"));
-                return de386Tag;
+
+            case "DE385":
+                return new ASCIITag(ASCIITag.HeaderType.DE385, mediaId, (byte) 0x00, secured,
+                    TagFactory.getPasswordForType("DE385Tag", "access"),
+                    TagFactory.getPasswordForType("DE385Tag", "kill"));
+
+            case "DELAN1":
+                return new ASCIITag(ASCIITag.HeaderType.DELAN1, mediaId, (byte) 0x00, secured,
+                    TagFactory.getPasswordForType("DELAN1Tag", "access"),
+                    TagFactory.getPasswordForType("DELAN1Tag", "kill"));
                 
             default:
                 throw new IllegalArgumentException("Unsupported tag format: " + format + 
-                    ". Supported formats: DE290, CD290, DE6, DE290F, DE386");
+                    ". Supported formats: DE290, CD290, DE6, DE290F, DE386, DE385, DELAN1");
         }
     }
 }
