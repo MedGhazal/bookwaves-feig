@@ -104,7 +104,7 @@ public class DELAN1Tag extends Tag {
     @Override
     public void setSecured(boolean secured) {
         epc[15] = (byte) ((epc[15] & 0b11111110) | (secured ? 1 : 0));
-        log.debug("Set DE386 secured={} (byte 15 now 0x{})", secured, String.format("%02X", epc[15]));
+        log.debug("Set DELAN1 secured={} (byte 15 now 0x{})", secured, String.format("%02X", epc[15]));
     }
 
     /**
@@ -223,14 +223,14 @@ public class DELAN1Tag extends Tag {
         // Validate ASCII compatibility
         if (!mediaId.matches("^[\\x00-\\x7F]+$")) {
             throw new IllegalArgumentException(
-                "DE386 format requires ASCII-only media ID (got non-ASCII characters)");
+                "DELAN1 format requires ASCII-only media ID (got non-ASCII characters)");
         }
         
         if (mediaId.length() > MAX_MEDIA_ID_LENGTH) {
             throw new IllegalArgumentException(String.format(
-                "DE386 format media ID too long: maximum %d characters, got %d", 
+                "DELAN1 format media ID too long: maximum %d characters, got %d", 
                 MAX_MEDIA_ID_LENGTH, mediaId.length()));
         }
-        log.debug("Validated DE386 mediaId '{}'", mediaId);
+        log.debug("Validated DELAN1 mediaId '{}'", mediaId);
     }
 }
