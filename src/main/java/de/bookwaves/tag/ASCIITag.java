@@ -109,13 +109,14 @@ public class ASCIITag extends Tag {
 
     @Override
     public String getMediaId() {
-        // Media ID is right-aligned: starts after padding, ends at byte 13 (before variable section at 14-15)
+        // Media ID is left-aligned: starts immediately after header, ends before variable section at 14-15
+        int mediaIdStart = HEADER_LENGTH;
         int mediaIdEnd = EPC_LENGTH - VARIABLE_LENGTH; // byte 14
 
-        // Find the start of media ID by skipping leading null bytes and spaces after header
-        int mediaIdStart = HEADER_LENGTH;
-        while (mediaIdStart < mediaIdEnd && (epc[mediaIdStart] == 0x00 || epc[mediaIdStart] == 0x20)) {
-            mediaIdStart++;
+        // Find the end of media ID by trimming trailing null bytes and spaces before variable section
+        while (mediaIdEnd > mediaIdStart
+            && (epc[mediaIdEnd - 1] == 0x00 || epc[mediaIdEnd - 1] == 0x20)) {
+            mediaIdEnd--;
         }
 
         // Extract media ID bytes
@@ -231,10 +232,10 @@ public class ASCIITag extends Tag {
         // Copy header (4 bytes)
         System.arraycopy(headerType.getHeader(), 0, epc, 0, HEADER_LENGTH);
 
-        // Right-align media ID: place it just before the variable section
+        // Left-align media ID: place it immediately after the header
         // Media ID ends at byte 13 (variable section starts at byte 14)
         byte[] mediaIdBytes = mediaId.getBytes(StandardCharsets.US_ASCII);
-        int mediaIdStart = EPC_LENGTH - VARIABLE_LENGTH - mediaIdBytes.length; // Grows leftward
+        int mediaIdStart = HEADER_LENGTH;
         System.arraycopy(mediaIdBytes, 0, epc, mediaIdStart, mediaIdBytes.length);
 
         // Variable section at the end (last 2 bytes)
