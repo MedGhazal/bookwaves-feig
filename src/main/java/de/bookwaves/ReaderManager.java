@@ -5,6 +5,7 @@ import de.feig.fedm.ErrorCode;
 import de.feig.fedm.ListenerParam;
 import de.feig.fedm.ReaderModule;
 import de.feig.fedm.RequestMode;
+import de.feig.fedm.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -400,6 +401,22 @@ public class ReaderManager {
 
         if (config.isHfProtocol()) {
             log.info("HF reader {} registered without configured antennas", config.getName());
+        }
+
+        ManagedReader managed = new ManagedReader(config);
+
+        // Connect to the reader — throws if unreachable
+        ReaderModule readerModule = managed.getModule();
+
+        // Push YAML config to the physical reader
+        Config feigConfig = readerModule.getConfig();
+        int state = config.applyConfig(feigConfig);
+        if (state != ErrorCode.Ok) {
+            managed.close();
+            throw new ReaderOperationException(
+                "Failed to apply configuration to reader '" + config.getName() +
+                "' (error code: " + state + ")"
+            );
         }
         readers.put(config.getName(), new ManagedReader(config));
     }

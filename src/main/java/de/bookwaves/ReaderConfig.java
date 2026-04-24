@@ -1,5 +1,7 @@
 package de.bookwaves;
 
+import de.feig.fedm.Config;
+
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -12,6 +14,12 @@ public class ReaderConfig {
     private static Logger log() {
         return LoggerFactory.getLogger(ReaderConfig.class);
     }
+
+    public enum ReaderType {
+        GENERIC,
+        MRU400
+    }
+
     private String name;
     private String address;
     private int port;
@@ -19,6 +27,8 @@ public class ReaderConfig {
     private String mode;
     private String protocol;
     private List<Integer> antennas = new ArrayList<>();
+    private List<Integer> rssiFilters = new ArrayList<>();
+    private ReaderType type = ReaderType.GENERIC;
 
     public ReaderConfig() {
         // Default constructor for YAML deserialization
@@ -84,6 +94,14 @@ public class ReaderConfig {
         this.protocol = protocol;
     }
 
+    public ReaderType getType() {
+        return type; 
+    }
+
+    public void setType(ReaderType type) {
+        this.type = type != null ? type : ReaderType.GENERIC;
+    }
+
     public boolean isHfProtocol() {
         return "hf".equalsIgnoreCase(getProtocol());
     }
@@ -94,6 +112,18 @@ public class ReaderConfig {
 
     public void setAntennas(List<Integer> antennas) {
         this.antennas = antennas == null ? new ArrayList<>() : new ArrayList<>(antennas);
+    }
+
+    public List<Integer> getRssiFilters() {
+        return rssiFilters; 
+    }
+
+    public void setRssiFilters(List<Integer> rssiFilters) {
+        this.rssiFilters = rssiFilters == null ? new ArrayList<>() : new ArrayList<>(rssiFilters);
+    }
+
+    public synchronized int applyConfig(Config readerConfig) {
+        return 0;
     }
 
     /**
