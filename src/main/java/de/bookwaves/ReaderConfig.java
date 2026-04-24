@@ -122,6 +122,15 @@ public class ReaderConfig {
         this.rssiFilters = rssiFilters == null ? new ArrayList<>() : new ArrayList<>(rssiFilters);
     }
 
+    public List<Integer> getOutputPowers() {
+        return rssiFilters; 
+    }
+
+    public void setOutputPowers(List<Integer> rssiFilters) {
+        this.rssiFilters = rssiFilters == null ? new ArrayList<>() : new ArrayList<>(rssiFilters);
+    }
+
+
     public synchronized int applyConfig(Config readerConfig) {
         return 0;
     }
