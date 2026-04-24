@@ -1,5 +1,10 @@
 package de.bookwaves;
 
+import de.bookwaves.ReaderManager.ReaderOperationException;
+
+import de.feig.fedm.Config;
+import de.feig.fedm.ReaderModule;
+
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
@@ -12,6 +17,17 @@ public class ReaderConfig {
     private static Logger log() {
         return LoggerFactory.getLogger(ReaderConfig.class);
     }
+
+    public enum ReaderType {
+        GENERIC,
+        MRU400
+    }
+
+    public enum ConfigurationState {
+        CONFIGURED,
+        MISCONFIGURED
+    }
+
     private String name;
     private String address;
     private int port;
@@ -19,9 +35,38 @@ public class ReaderConfig {
     private String mode;
     private String protocol;
     private List<Integer> antennas = new ArrayList<>();
+    private List<Integer> rssiFilters = new ArrayList<>();
+    private List<Double> outputPowers = new ArrayList<>();
+    private String username;
+    private String password;
+    private ReaderType type = ReaderType.GENERIC;
 
     public ReaderConfig() {
         // Default constructor for YAML deserialization
+    }
+
+    public ReaderConfig(String name, String address, int port, Integer listenerPort, String mode, List<Integer> antennas, String username, String password) {
+        this.name = name;
+        this.address = address;
+        this.port = port;
+        this.listenerPort = listenerPort;
+        this.mode = mode;
+        this.type = ReaderType.GENERIC;
+        this.username = username;
+        this.password = password;
+        setAntennas(antennas);
+    }
+
+    public ReaderConfig(String name, String address, int port, Integer listenerPort, String mode, List<Integer> antennas, List<Double> outputPowers, List<Integer> rssiFilters) {
+        this.name = name;
+        this.address = address;
+        this.port = port;
+        this.listenerPort = listenerPort;
+        this.mode = mode;
+        this.type = ReaderType.GENERIC;
+        this.rssiFilters = rssiFilters;
+        this.outputPowers = outputPowers;
+        setAntennas(antennas);
     }
 
     public ReaderConfig(String name, String address, int port, Integer listenerPort, String mode, List<Integer> antennas) {
@@ -30,6 +75,9 @@ public class ReaderConfig {
         this.port = port;
         this.listenerPort = listenerPort;
         this.mode = mode;
+        this.type = ReaderType.GENERIC;
+        this.username = "";
+        this.password = "";
         setAntennas(antennas);
     }
 
@@ -39,6 +87,22 @@ public class ReaderConfig {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     public String getAddress() {
@@ -84,8 +148,20 @@ public class ReaderConfig {
         this.protocol = protocol;
     }
 
+    public ReaderType getType() {
+        return type; 
+    }
+
+    public void setType(ReaderType type) {
+        this.type = type != null ? type : ReaderType.GENERIC;
+    }
+
     public boolean isHfProtocol() {
         return "hf".equalsIgnoreCase(getProtocol());
+    }
+
+    public boolean hasCredentials() {
+        return username != null && !username.isBlank();
     }
 
     public List<Integer> getAntennas() {
@@ -94,6 +170,36 @@ public class ReaderConfig {
 
     public void setAntennas(List<Integer> antennas) {
         this.antennas = antennas == null ? new ArrayList<>() : new ArrayList<>(antennas);
+    }
+
+    public List<Integer> getRssiFilters() {
+        return rssiFilters; 
+    }
+
+    public void setRssiFilters(List<Integer> rssiFilters) {
+        this.rssiFilters = rssiFilters == null ? new ArrayList<>() : new ArrayList<>(rssiFilters);
+    }
+
+    public List<Double> getOutputPowers() {
+        return outputPowers; 
+    }
+
+    public void setOutputPowers(List<Double> outputPowers) {
+        this.outputPowers = outputPowers == null ? new ArrayList<>() : new ArrayList<>(outputPowers);
+    }
+
+    public synchronized ConfigurationState checkConfig(ReaderModule readerModule) throws ReaderOperationException {
+        if (getType() == ReaderType.GENERIC) {
+            log().info("Generic Reader: configuration won't be checked.");
+        }
+        return ConfigurationState.CONFIGURED;
+    }
+
+    public synchronized int applyConfig(ReaderModule readerModule) throws ReaderOperationException {
+        if (getType() == ReaderType.GENERIC) {
+            log().info("Generic Reader: no configuration applied.");
+        }
+        return 0;
     }
 
     /**
@@ -116,7 +222,7 @@ public class ReaderConfig {
                 log().warn("Ignoring invalid antenna index {} for reader {}", antenna, name);
             }
         }
-        log().debug("Computed antenna mask 0x{} for reader {} from {}", String.format("%02X", mask), name, antennas);
+        log().info("Computed antenna mask 0x{} for reader {} from {}", String.format("%02X", mask), name, antennas);
         return (byte) mask;
     }
 

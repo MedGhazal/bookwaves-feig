@@ -28,7 +28,7 @@ logLevel: INFO
 # To show only this app logs, set global level high (e.g., WARN) and app package lower (e.g., INFO/DEBUG)
 loggers:
   de.bookwaves: DEBUG
-  # de.bookwaves.ReaderManager: DEBUG
+# de.bookwaves.ReaderManager: DEBUG
 
 # Allow all origins for CORS (defaults to false)
 corsAnyHost: false
@@ -54,6 +54,8 @@ readers:
     listenerPort: 20001
     mode: notification
     antennas: [1,2]
+    type: MRU400
+    rssiFilters: [-60, -65]
   - name: reader3
     address: 192.168.1.75
     port: 10001

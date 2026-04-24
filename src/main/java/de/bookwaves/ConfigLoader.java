@@ -14,6 +14,7 @@ import java.util.Map;
 
 /**
  * Utility class to load reader configurations from a YAML file.
+ * TODO: update reader validation for MRU400 readers
  */
 public class ConfigLoader {
     private static Logger log() {
@@ -133,6 +134,26 @@ public class ConfigLoader {
         }
     }
 
+    private static ReaderConfig promoteReaderConfig(ReaderConfig base) {
+        log().info("Premoting reader {} with type {}", base.getName(), base.getType());
+
+        if (base.getType() == ReaderConfig.ReaderType.MRU400) {
+            MRU400ReaderConfig mru = new MRU400ReaderConfig();
+            mru.setName(base.getName());
+            mru.setAddress(base.getAddress());
+            mru.setPort(base.getPort());
+            mru.setListenerPort(base.getListenerPort());
+            mru.setMode(base.getMode());
+            mru.setAntennas(base.getAntennas());
+            mru.setRssiFilters(base.getRssiFilters());
+            mru.setOutputPowers(base.getOutputPowers());
+            mru.setUsername(base.getUsername());
+            mru.setPassword(base.getPassword());
+            return mru;
+        }
+        return base;
+    }
+
     public static List<ReaderConfig> loadReaders() throws Exception {
         Configuration configuration = loadConfiguration();
 
@@ -141,11 +162,15 @@ public class ConfigLoader {
             throw new Exception("No readers found in configuration file");
         }
 
-        validateReaderConfigurations(configuration.getReaders());
+        List<ReaderConfig> readers = configuration.getReaders().stream()
+        .map(ConfigLoader::promoteReaderConfig)
+        .toList();
+
+        validateReaderConfigurations(readers);
 
         log().info("Loaded configuration with {} readers and {} tag password entries",
-            configuration.getReaders().size(), configuration.getTagPasswords().size());
-        return configuration.getReaders();
+            readers.size(), configuration.getTagPasswords().size());
+        return readers;
     }
 
     private static void validateReaderConfigurations(List<ReaderConfig> readers) throws Exception {
@@ -162,6 +187,19 @@ public class ConfigLoader {
                     "Invalid reader configuration for " + readerName +
                     ": antennas must not be configured when protocol is hf"
                 );
+            }
+
+            if (reader instanceof MRU400ReaderConfig mru) {
+                List<Integer> rssiFilters = mru.getRssiFilters();
+                List<Integer> antennas    = mru.getAntennas();
+
+                if (!rssiFilters.isEmpty() && rssiFilters.size() != antennas.size()) {
+                    throw new Exception(
+                        "Invalid reader configuration for '" + mru.getName() +
+                        "': rssiFilters length (" + rssiFilters.size() +
+                        ") must match antennas length (" + antennas.size() + ")"
+                    );
+                }
             }
         }
     }
