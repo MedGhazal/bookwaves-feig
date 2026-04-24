@@ -392,7 +392,7 @@ public class ReaderManager {
         }
     }
 
-    public void registerReader(ReaderConfig config) {
+    public void registerReader(ReaderConfig config) throws Exception {
         if (config.isHfProtocol() && config.getAntennas() != null && !config.getAntennas().isEmpty()) {
             throw new IllegalArgumentException(
                 "Reader " + config.getName() + " uses protocol hf and must not define antennas"
@@ -409,7 +409,7 @@ public class ReaderManager {
         ReaderModule readerModule = managed.getModule();
 
         // Push YAML config to the physical reader
-        Config feigConfig = readerModule.getConfig();
+        Config feigConfig = readerModule.config();
         int state = config.applyConfig(feigConfig);
         if (state != ErrorCode.Ok) {
             managed.close();
