@@ -151,7 +151,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
                     yield state;
                 }
                 yield 0;
-            };
+            }
             default -> {
                 log().error("Reader '{}' has unexpected mode '{}'", getName(), getMode());
                 yield -1;
@@ -227,7 +227,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
             case "host"         -> {
                 log().error("Configuration value not expected for 'reader {}' with mode '{}'", getName(), getMode());
                 yield -1;
-            };
+            }
             case "notification" -> readerConfig.setConfigPara(param, getListenerPort());
             default -> {
                 log().error("Reader '{}' has unexpected mode '{}'", getName(), getMode());
