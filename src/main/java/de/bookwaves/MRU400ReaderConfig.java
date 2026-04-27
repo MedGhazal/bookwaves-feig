@@ -114,10 +114,10 @@ public class MRU400ReaderConfig extends ReaderConfig {
     }
 
     private int enableMultiplexer(Config readerConfig) {
-        String param = "AirInterface.Multiplexer.Enable"
+        String param = "AirInterface.Multiplexer.Enable";
         int state = readerConfig.setConfigPara(param, 0x1);
         if (state != 0) {
-            log().error("Reader '{}': failed to enable multiplexer of reader {} (error {})",
+            log().error("Reader '{}': failed to enable multiplexer (error {})",
                 getName(), state);
             return state;
         }
