@@ -121,7 +121,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
                 getName(), state);
             return state;
         }
-        return 0
+        return 0;
     }
 
     private int setReaderMode(Config readerConfig) {
