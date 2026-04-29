@@ -76,7 +76,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
     private int setConnectionHoldTime(Config readerConfig) {
         String param = "HostInterface.LAN.Remote.Channel1.ConnectionHoldTime";
         log.info("Reader {}: setting parameter {} to {}", getName(), param, 1000);
-        int state = readerConfig.setConfigPara(HostInterface.LAN.Remote.Channel1.ConnectionHoldTime, 10000);
+        int state = readerConfig.setConfigPara(param, 10000);
 
         if (state != 0) {
             log.error("Reader {}: failed to set connection hold time (error {})",
