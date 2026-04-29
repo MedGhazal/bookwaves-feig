@@ -28,6 +28,7 @@ public class ReaderConfig {
     private String protocol;
     private List<Integer> antennas = new ArrayList<>();
     private List<Integer> rssiFilters = new ArrayList<>();
+    private List<Double> outputPowers = new ArrayList<>();
     private ReaderType type = ReaderType.GENERIC;
 
     public ReaderConfig() {
@@ -40,6 +41,7 @@ public class ReaderConfig {
         this.port = port;
         this.listenerPort = listenerPort;
         this.mode = mode;
+        this.type = ReaderType.GENERIC;
         setAntennas(antennas);
     }
 
@@ -122,16 +124,19 @@ public class ReaderConfig {
         this.rssiFilters = rssiFilters == null ? new ArrayList<>() : new ArrayList<>(rssiFilters);
     }
 
-    public List<Integer> getOutputPowers() {
-        return rssiFilters; 
+    public List<Double> getOutputPowers() {
+        return outputPowers; 
     }
 
-    public void setOutputPowers(List<Integer> rssiFilters) {
-        this.rssiFilters = rssiFilters == null ? new ArrayList<>() : new ArrayList<>(rssiFilters);
+    public void setOutputPowers(List<Double> outputPowers) {
+        this.outputPowers = outputPowers == null ? new ArrayList<>() : new ArrayList<>(outputPowers);
     }
 
 
     public synchronized int applyConfig(Config readerConfig) {
+        if (getType() == ReaderType.GENERIC) {
+            log().info("Generic Reader; no configuration applied.");
+        }
         return 0;
     }
 

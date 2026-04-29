@@ -134,11 +134,13 @@ public class ConfigLoader {
     }
 
     private static ReaderConfig promoteReaderConfig(ReaderConfig base) {
+        log().info("Premoting reader {} with type {}", base.getName(), base.getType());
+
         if (base.getType() == ReaderConfig.ReaderType.MRU400) {
             MRU400ReaderConfig mru = new MRU400ReaderConfig(
                 base.getName(), base.getAddress(), base.getPort(),
                 base.getListenerPort(), base.getMode(), base.getAntennas(),
-                base.getRssiFilters()
+                base.getRssiFilters(), base.getOutputPowers()
             );
             return mru;
         }
@@ -153,7 +155,7 @@ public class ConfigLoader {
             throw new Exception("No readers found in configuration file");
         }
 
-         List<ReaderConfig> readers = configuration.getReaders().stream()
+        List<ReaderConfig> readers = configuration.getReaders().stream()
         .map(ConfigLoader::promoteReaderConfig)
         .toList();
 
@@ -161,7 +163,7 @@ public class ConfigLoader {
 
         log().info("Loaded configuration with {} readers and {} tag password entries",
             readers.size(), configuration.getTagPasswords().size());
-        return configuration.getReaders();
+        return readers;
     }
 
     private static void validateReaderConfigurations(List<ReaderConfig> readers) throws Exception {

@@ -403,12 +403,15 @@ public class ReaderManager {
             log.info("HF reader {} registered without configured antennas", config.getName());
         }
 
+        log.info("{}", config);
+
         ManagedReader managed = new ManagedReader(config);
 
         // Connect to the reader — throws if unreachable
         ReaderModule readerModule = managed.getModule();
 
         // Push YAML config to the physical reader
+        log.info("Applying configuration to reader {} with type {}.", config.getName(), config.getType());
         Config feigConfig = readerModule.config();
         int state = config.applyConfig(feigConfig);
         if (state != ErrorCode.Ok) {
