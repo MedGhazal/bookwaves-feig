@@ -49,6 +49,8 @@ public class MRU400ReaderConfig extends ReaderConfig {
             if (state != 0) return state;
         }
 
+        readerConfig.applyConfiguration(true);
+
         return 0;
     }
 
