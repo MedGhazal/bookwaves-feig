@@ -1,6 +1,6 @@
 package de.bookwaves;
 
-import de.feig.fedm.readerConfig;
+// import de.feig.fedm.readerConfig;
 
 import de.feig.fedm.Config;
 
