@@ -1,6 +1,9 @@
 package de.bookwaves;
 
+import de.bookwaves.ReaderManager.ReaderOperationException;
+
 import de.feig.fedm.Config;
+import de.feig.fedm.ReaderModule;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +23,11 @@ public class ReaderConfig {
         MRU400
     }
 
+    public enum ConfigurationState {
+        CONFIGURED,
+        MISCONFIGURED
+    }
+
     private String name;
     private String address;
     private int port;
@@ -29,10 +37,36 @@ public class ReaderConfig {
     private List<Integer> antennas = new ArrayList<>();
     private List<Integer> rssiFilters = new ArrayList<>();
     private List<Double> outputPowers = new ArrayList<>();
+    private String username;
+    private String password;
     private ReaderType type = ReaderType.GENERIC;
 
     public ReaderConfig() {
         // Default constructor for YAML deserialization
+    }
+
+    public ReaderConfig(String name, String address, int port, Integer listenerPort, String mode, List<Integer> antennas, String username, String password) {
+        this.name = name;
+        this.address = address;
+        this.port = port;
+        this.listenerPort = listenerPort;
+        this.mode = mode;
+        this.type = ReaderType.GENERIC;
+        this.username = username;
+        this.password = password;
+        setAntennas(antennas);
+    }
+
+    public ReaderConfig(String name, String address, int port, Integer listenerPort, String mode, List<Integer> antennas, List<Double> outputPowers, List<Integer> rssiFilters) {
+        this.name = name;
+        this.address = address;
+        this.port = port;
+        this.listenerPort = listenerPort;
+        this.mode = mode;
+        this.type = ReaderType.GENERIC;
+        this.rssiFilters = rssiFilters;
+        this.outputPowers = outputPowers;
+        setAntennas(antennas);
     }
 
     public ReaderConfig(String name, String address, int port, Integer listenerPort, String mode, List<Integer> antennas) {
@@ -42,6 +76,8 @@ public class ReaderConfig {
         this.listenerPort = listenerPort;
         this.mode = mode;
         this.type = ReaderType.GENERIC;
+        this.username = "";
+        this.password = "";
         setAntennas(antennas);
     }
 
@@ -51,6 +87,22 @@ public class ReaderConfig {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
     }
 
     public String getAddress() {
@@ -108,6 +160,10 @@ public class ReaderConfig {
         return "hf".equalsIgnoreCase(getProtocol());
     }
 
+    public boolean hasCredentials() {
+        return username != null && !username.isBlank();
+    }
+
     public List<Integer> getAntennas() {
         return antennas;
     }
@@ -132,10 +188,16 @@ public class ReaderConfig {
         this.outputPowers = outputPowers == null ? new ArrayList<>() : new ArrayList<>(outputPowers);
     }
 
-
-    public synchronized int applyConfig(Config readerConfig) {
+    public synchronized ConfigurationState checkConfig(ReaderModule readerModule) throws ReaderOperationException {
         if (getType() == ReaderType.GENERIC) {
-            log().info("Generic Reader; no configuration applied.");
+            log().info("Generic Reader: configuration won't be checked.");
+        }
+        return ConfigurationState.CONFIGURED;
+    }
+
+    public synchronized int applyConfig(ReaderModule readerModule) throws ReaderOperationException {
+        if (getType() == ReaderType.GENERIC) {
+            log().info("Generic Reader: no configuration applied.");
         }
         return 0;
     }
@@ -160,7 +222,7 @@ public class ReaderConfig {
                 log().warn("Ignoring invalid antenna index {} for reader {}", antenna, name);
             }
         }
-        log().debug("Computed antenna mask 0x{} for reader {} from {}", String.format("%02X", mask), name, antennas);
+        log().info("Computed antenna mask 0x{} for reader {} from {}", String.format("%02X", mask), name, antennas);
         return (byte) mask;
     }
 

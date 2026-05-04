@@ -14,6 +14,7 @@ import java.util.Map;
 
 /**
  * Utility class to load reader configurations from a YAML file.
+ * TODO: update reader validation for MRU400 readers
  */
 public class ConfigLoader {
     private static Logger log() {
@@ -137,11 +138,17 @@ public class ConfigLoader {
         log().info("Premoting reader {} with type {}", base.getName(), base.getType());
 
         if (base.getType() == ReaderConfig.ReaderType.MRU400) {
-            MRU400ReaderConfig mru = new MRU400ReaderConfig(
-                base.getName(), base.getAddress(), base.getPort(),
-                base.getListenerPort(), base.getMode(), base.getAntennas(),
-                base.getRssiFilters(), base.getOutputPowers()
-            );
+            MRU400ReaderConfig mru = new MRU400ReaderConfig();
+            mru.setName(base.getName());
+            mru.setAddress(base.getAddress());
+            mru.setPort(base.getPort());
+            mru.setListenerPort(base.getListenerPort());
+            mru.setMode(base.getMode());
+            mru.setAntennas(base.getAntennas());
+            mru.setRssiFilters(base.getRssiFilters());
+            mru.setOutputPowers(base.getOutputPowers());
+            mru.setUsername(base.getUsername());
+            mru.setPassword(base.getPassword());
             return mru;
         }
         return base;

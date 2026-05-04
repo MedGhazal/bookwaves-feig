@@ -1,5 +1,7 @@
 package de.bookwaves;
 
+import de.bookwaves.ReaderConfig.ConfigurationState;
+
 import de.feig.fedm.Connector;
 import de.feig.fedm.ErrorCode;
 import de.feig.fedm.ListenerParam;
@@ -78,20 +80,25 @@ public class ReaderManager {
         public synchronized ReaderModule getModule() throws Exception {
             if (readerModule == null) {
                 readerModule = new ReaderModule(RequestMode.UniDirectional);
-                log.debug("Created ReaderModule for {} in UniDirectional mode", config.getName());
+                log.info("Created ReaderModule for {} in UniDirectional mode", config.getName());
                 lastConnectionStatus = "disconnected";
             }
 
             if (!readerModule.isConnected()) {
-                // Try to reconnect first, fall back to fresh connection if that fails
-                log.debug("Attempting reconnect to reader {}", config.getName());
-                int returnCode = readerModule.reconnect();
-                
-                if (returnCode != ErrorCode.Ok) {
-                    // Reconnect failed, try fresh connection
-                    log.info("Reconnect failed for {} (code {}), attempting fresh TCP connect", config.getName(), returnCode);
+                String username = config.getUsername();
+                String password = config.getPassword();
+
+                int returnCode = ErrorCode.Ok;
+
+                if (!config.hasCredentials()) {
+                    log.info("Attempting reconnect to reader {}", config.getName());
+                    returnCode = readerModule.reconnect();
+                } else {
+                    log.info("Attempting fresh TCP connect to {}", config.getName());
                     Connector connector = Connector.createTcpConnector(config.getAddress(), config.getPort());
                     connector.setTcpConnectTimeout(5000);
+                    connector.setAuthentication(username, password);
+                    log.info("Using authenticated connection for reader {}", config.getName());
                     returnCode = readerModule.connect(connector);
                 }
 
@@ -101,6 +108,7 @@ public class ReaderManager {
                     throw new Exception("Failed to connect to reader " + config.getName() + ": " + 
                                       readerModule.lastErrorStatusText() + " (code: " + returnCode + ")");                                    
                 }
+
                 log.info("Connected to reader {}", config.getName());
                 lastConnectionStatus = "connected";
                 lastConnectionError = null;
@@ -156,7 +164,7 @@ public class ReaderManager {
             // Create fresh ReaderModule instance
             log.info("Creating new ReaderModule instance for {}", config.getName());
             readerModule = new ReaderModule(RequestMode.UniDirectional);
-                log.debug("New ReaderModule created after forced disconnect for {}", config.getName());
+                log.info("New ReaderModule created after forced disconnect for {}", config.getName());
             
             // Establish fresh connection
             log.info("Attempting fresh connection to {}", config.getName());
@@ -269,7 +277,7 @@ public class ReaderManager {
 
         public synchronized boolean startNotificationMode(int port) throws Exception {
             if (notificationListener != null) {
-                log.debug("Notification already active for {} on port {}", config.getName(), listenerPort);
+                log.info("Notification already active for {} on port {}", config.getName(), listenerPort);
                 return false; // Already running
             }
 
@@ -319,7 +327,7 @@ public class ReaderManager {
 
         public synchronized boolean stopNotificationMode() {
             if (notificationListener == null) {
-                log.debug("Notification stop requested but none active for {}", config.getName());
+                log.info("Notification stop requested but none active for {}", config.getName());
                 return false; // Not running
             }
 
@@ -403,23 +411,23 @@ public class ReaderManager {
             log.info("HF reader {} registered without configured antennas", config.getName());
         }
 
-        log.info("{}", config);
-
         ManagedReader managed = new ManagedReader(config);
 
         // Connect to the reader — throws if unreachable
         ReaderModule readerModule = managed.getModule();
 
-        // Push YAML config to the physical reader
-        log.info("Applying configuration to reader {} with type {}.", config.getName(), config.getType());
-        Config feigConfig = readerModule.config();
-        int state = config.applyConfig(feigConfig);
-        if (state != ErrorCode.Ok) {
-            managed.close();
-            throw new ReaderOperationException(
-                "Failed to apply configuration to reader '" + config.getName() +
-                "' (error code: " + state + ")"
-            );
+        ConfigurationState configState = config.checkConfig(readerModule);
+        if (configState == ConfigurationState.MISCONFIGURED) {
+            // Push YAML config to the physical reader
+            log.info("Reader {} misconfigured, pushing YAML config to the reader...", config.getName());
+            int applyingState = config.applyConfig(readerModule);
+            if (applyingState != ErrorCode.Ok) {
+                managed.close();
+                throw new ReaderOperationException(
+                    "Failed to apply configuration to reader '" + config.getName() +
+                    "' (error code: " + applyingState + ")"
+                );
+            }
         }
         readers.put(config.getName(), new ManagedReader(config));
     }
