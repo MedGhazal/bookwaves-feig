@@ -25,7 +25,6 @@ import org.slf4j.LoggerFactory;
  * Configuration for FEIG MRU400 readers.
  * Extends ReaderConfig with MRU400-specific operating mode and RSSI filter settings.
  * Additional MRU400-specific parameters can be added in future contributions.
- * TODO: check if persistent flag is needed
  */
 public class MRU400ReaderConfig extends ReaderConfig {
     private static final Logger log = LoggerFactory.getLogger(MRU400ReaderConfig.class);
@@ -33,7 +32,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
     private static final String MODE_PARAMETER = "OperatingMode.Mode";
     private static final String PORT_NUMBER_PARAMETER = "HostInterface.LAN.Remote.Channel1.PortNumber";
     private static final String SELECTED_ANTENNAS_PARAMETER = "AirInterface.Multiplexer.UHF.Internal.SelectedAntennas";
-    private static final String RSSI_FILTER_ANTENNA_TEMPLATE_PARAMETER = "AirInterface.Antenna.UHF.No%d.RssiFilter";
+    private static final String RSSI_FILTER_ANTENNA_TEMPLATE_PARAMETER = "AirInterface.Antenna.UHF.No%d.RSSIFilter";
     private static final String OUTPUT_POWER_ANTENNA_TEMPLATE_PARAMETER = "AirInterface.Antenna.UHF.No%d.OutputPower";
 
     private static final Map<Double, Byte> OUTPUT_POWER_TO_HEX =
@@ -110,48 +109,33 @@ public class MRU400ReaderConfig extends ReaderConfig {
         return ConfigurationState.CONFIGURED;
     }
 
-    public ConfigurationState checkListenerPost(ReaderModule readerModule) {
-        // LongRef currentListnerPort;
-        // int state = readerModule.config().getConfigPara(PORT_NUMBER_PARAMETER, currentListnerPort);
-        // if (getListenerPort() != (int) currentListnerPort) return -1;
-        return ConfigurationState.CONFIGURED;
-    }
-
-    public ConfigurationState checkSelectedAntennas(ReaderModule readerModule) {
-        ByteRef currentAntennas = new ByteRef ((byte) 0x0);
-        int state = readerModule.config().getConfigPara(SELECTED_ANTENNAS_PARAMETER, currentAntennas);
-        List<Integer> expected = SELECTED_ANTENNAS_TO_LIST.get(currentAntennas.getValue());
-        List<Integer> configuredSorted = getAntennas().stream().sorted().toList();
-        if (expected == null || !expected.equals(configuredSorted)) return ConfigurationState.MISCONFIGURED;
-        return ConfigurationState.CONFIGURED;
-    }
-
-    public ConfigurationState checkRSSIFilters(ReaderModule readerModule) {
+    public ConfigurationState checkRSSIFilters(ReaderModule readerModule) throws ReaderOperationException {
         List<Integer> antennas = getAntennas();
 
         for (int i = 0; i < antennas.size(); i++) {
             int antenna = antennas.get(i);
             LongRef configuredRssiFilter = new LongRef(getRssiFilters().get(i));
-            LongRef currentRssiFilter = new LongRef(0);
+            LongRef currentRssiFilter = new LongRef();
             String param = String.format(RSSI_FILTER_ANTENNA_TEMPLATE_PARAMETER, antenna);
+            log.debug("Reader {}: Checking parameter {}", getName(), param);
             int state = readerModule.config().getConfigPara(param, currentRssiFilter);
+            state = checkReturnCode(state, false);
             if (currentRssiFilter.getValue() != configuredRssiFilter.getValue()) return ConfigurationState.MISCONFIGURED;
         }
         
         return ConfigurationState.CONFIGURED;
     }
 
-    public ConfigurationState checkOutputPowers(ReaderModule readerModule) {
+    public ConfigurationState checkOutputPowers(ReaderModule readerModule) throws ReaderOperationException {
         List<Integer> antennas = getAntennas();
 
         for (int i = 0; i < antennas.size(); i++) {
             int antenna = antennas.get(i);
-            LongRef configuredOutputPower = new LongRef(
-                OUTPUT_POWER_TO_HEX.get(getOutputPowers().get(i))
-            );
-            LongRef currentOutputPower = new LongRef(0x0); 
+            ByteRef configuredOutputPower = new ByteRef((byte) OUTPUT_POWER_TO_HEX.get(getOutputPowers().get(i)));
+            ByteRef currentOutputPower = new ByteRef(); 
             String param = String.format(OUTPUT_POWER_ANTENNA_TEMPLATE_PARAMETER, antenna);
             int state = readerModule.config().getConfigPara(param, currentOutputPower);
+            state = checkReturnCode(state, false);
             if (currentOutputPower.getValue() != configuredOutputPower.getValue()) return ConfigurationState.MISCONFIGURED;
         }
         
@@ -167,19 +151,13 @@ public class MRU400ReaderConfig extends ReaderConfig {
         ConfigurationState configState = checkReaderMode(readerModule);
         if (configState == ConfigurationState.MISCONFIGURED) return configState;
 
-        if (getMode() == "notification") {
-            // configState = checkSelectedAntennas(readerModule);
-            // if (configState == ConfigurationState.MISCONFIGURED) return configState;
-            // state = checkTransmitedFields(readerModule);
-            // state = checkConnectionHoldTime(readerModule);
-            // state = checkTransponderValidTime(readerModule);
-            // state = checkListenerPost(readerModule);
-        }
+        log.info("Check RSSI filters");
 
-        // configState = checkRSSIFilters(readerModule);
-        // if (configState == ConfigurationState.MISCONFIGURED) return configState;
-        // configState = checkOutputPowers(readerModule);
-        // if (configState == ConfigurationState.MISCONFIGURED) return configState;
+        configState = checkRSSIFilters(readerModule);
+        if (configState == ConfigurationState.MISCONFIGURED) return configState;
+        
+        configState = checkOutputPowers(readerModule);
+        if (configState == ConfigurationState.MISCONFIGURED) return configState;
 
         return ConfigurationState.CONFIGURED;
     }
@@ -193,14 +171,11 @@ public class MRU400ReaderConfig extends ReaderConfig {
         int state = setReaderMode(readerModule);
         if (state != ErrorCode.Ok) return state;
 
-        // state = setReaderRssiFilter(readerModule);
-        // if (state != ErrorCode.Ok) return state;
+        state = setReaderRSSIFilters(readerModule);
+        if (state != ErrorCode.Ok) return state;
 
-        // state = setReaderOutputPowers(readerModule);
-        // if (state != ErrorCode.Ok) return state;
-
-        // state = setSelectedAntennas(readerModule);
-        // if (state != ErrorCode.Ok) return state;
+        state = setReaderOutputPowers(readerModule);
+        if (state != ErrorCode.Ok) return state;
 
         state = readerModule.config().applyConfiguration(true);
         state = checkReturnCode(state, true);
@@ -323,7 +298,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
         };
     }
 
-    private int setReaderRssiFilter(ReaderModule readerModule) {
+    private int setReaderRSSIFilters(ReaderModule readerModule) {
         List<Integer> antennas = getAntennas();
         List<Integer> rssiFilters = getRssiFilters();
         log.info("Reader {}: setting configured RSSI filters", getName());
@@ -338,7 +313,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
             int antenna = antennas.get(i);
             int rssiVal = rssiFilters.get(i);
 
-            if (antenna < 1 || antenna > 8) {
+            if (antenna < 1 || antenna > 4) {
                 log.warn("Reader {}: ignoring invalid antenna index {}", getName(), antenna);
                 continue;
             }
@@ -346,6 +321,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
             String param = String.format(RSSI_FILTER_ANTENNA_TEMPLATE_PARAMETER, antenna);
             log.info("Reader {}: setting parameter {} to {}", getName(), param, rssiVal);
             int state = readerModule.config().changeConfigPara(param, rssiVal);
+            state = checkReturnCode(state, true);
             if (state != 0) {
                 log.error("Reader {}: failed to set RSSI for antenna {} (error {})",
                     getName(), antenna, state);
@@ -356,7 +332,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
         return 0;
     }
 
-    private int setReaderOutputPowers(ReaderModule readerModule) {
+    private int setReaderOutputPowers(ReaderModule readerModule) throws ReaderOperationException {
         List<Integer> antennas = getAntennas();
         List<Double> outputPowers = getOutputPowers();
         log.info("Reader {}: setting configured output powers of the antennas", getName());
@@ -377,7 +353,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
                 );
             }
 
-            if (antenna < 1 || antenna > 8) {
+            if (antenna < 1 || antenna > 4) {
                 log.warn("Reader {}: ignoring invalid antenna index {}", getName(), antenna);
                 continue;
             }
@@ -388,6 +364,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
             log.info("Reader {}: setting parameter {} to {}", getName(), param, outputPowerHEXValue);
 
             int state = readerModule.config().changeConfigPara(param, (byte) outputPowerHEXValue);
+            state = checkReturnCode(state, true);
             if (state != ErrorCode.Ok) {
                 log.error("Reader {}: failed to set output power for antenna 0x{} to {} (error {})",
                     getName(), antenna, String.format("%02X", outputPowerHEXValue), state);
@@ -400,7 +377,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
 
     private int setChannelPortNumber(ReaderModule readerModule) {
         String param = "HostInterface.LAN.Remote.Channel1.PortNumber";
-        log.info("Reader {}: setting parameter {} to {}", getName(), param, getListenerPort());
+        log.debug("Reader {}: setting parameter {} to {}", getName(), param, getListenerPort());
         return switch (getMode()) {
             case "host"         -> {
                 log.error("Configuration value not expected for 'reader {}' with mode {}", getName(), getMode());
