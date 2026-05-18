@@ -298,7 +298,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
         };
     }
 
-    private int setReaderRSSIFilters(ReaderModule readerModule) {
+    private int setReaderRSSIFilters(ReaderModule readerModule) throws ReaderOperationException{
         List<Integer> antennas = getAntennas();
         List<Integer> rssiFilters = getRssiFilters();
         log.info("Reader {}: setting configured RSSI filters", getName());
