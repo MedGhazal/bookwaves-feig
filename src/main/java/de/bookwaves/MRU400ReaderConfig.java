@@ -16,6 +16,10 @@ import java.util.List;
 import java.util.Map;
 import static java.util.Map.entry;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+
 import java.lang.StringBuilder;
 
 import org.slf4j.Logger;
@@ -30,10 +34,25 @@ public class MRU400ReaderConfig extends ReaderConfig {
     private static final Logger log = LoggerFactory.getLogger(MRU400ReaderConfig.class);
 
     private static final String MODE_PARAMETER = "OperatingMode.Mode";
+    private static final String MULTIPLEXER_ACTIVATION_PARAMETER = "AirInterface.Multiplexer.Enable";
     private static final String PORT_NUMBER_PARAMETER = "HostInterface.LAN.Remote.Channel1.PortNumber";
     private static final String SELECTED_ANTENNAS_PARAMETER = "AirInterface.Multiplexer.UHF.Internal.SelectedAntennas";
     private static final String RSSI_FILTER_ANTENNA_TEMPLATE_PARAMETER = "AirInterface.Antenna.UHF.No%d.RSSIFilter";
     private static final String OUTPUT_POWER_ANTENNA_TEMPLATE_PARAMETER = "AirInterface.Antenna.UHF.No%d.OutputPower";
+    private static final String DATA_SELECTOR_TEMPLATE_PARAMETER = "OperatingMode.AutoReadModes.DataSelector.%s";
+    private static final String TRANSPONDER_VALID_TIME_PARAMETER = "OperatingMode.AutoReadModes.Filter.TransponderValidTime";
+    private static final String CONNECTION_HOLD_TIME_PARAMETER = "HostInterface.LAN.Remote.Channel1.ConnectionHoldTime";
+    // TODO: Check this parameter name in the documentation
+    private static final String PERSISTANT_RESET_TIME_PARAMETER = "Transponder.PersistantReset";
+
+    private static final int PERSISTANT_RESET_TIME = 1;
+    private static final int TRANSPONDER_VALID_TIME = 1;
+    private static final int CONNECTION_HOLD_TIME = 10000;
+
+    private static String LOCALHOST = "127.0.0.1";
+    private static int TIMEOUT = 2000; // 2 seconds
+
+    private static final List<String> DATA_SELECTORS = List.of("Date", "Antenna", "UID", "Time");
 
     private static final Map<Double, Byte> OUTPUT_POWER_TO_HEX =
         Map.ofEntries(
@@ -185,78 +204,76 @@ public class MRU400ReaderConfig extends ReaderConfig {
     }
 
     private int setConnectionHoldTime(ReaderModule readerModule) {
-        String param = "HostInterface.LAN.Remote.Channel1.ConnectionHoldTime";
-        log.info("Reader {}: setting parameter {} to {}", getName(), param, 1000);
-        int state = readerModule.config().changeConfigPara(param, 10000);
+        log.info("Reader {}: setting parameter {} to {}", getName(), CONNECTION_HOLD_TIME_PARAMETER, CONNECTION_HOLD_TIME);
+        int state = readerModule.config().changeConfigPara(CONNECTION_HOLD_TIME_PARAMETER, CONNECTION_HOLD_TIME);
 
-        if (state != 0) {
-            log.error("Reader {}: failed to set connection hold time (error {})",
-                getName(), state);
+        if (state != ErrorCode.Ok) {
+            log.error("Reader {}: failed to set connection hold time (error {})", getName(), state);
             return state;
         }
 
-        return 0;
+        return ErrorCode.Ok;
     }
 
     private int setTransponderValidTime(ReaderModule readerModule) {
-        String param = "OperatingMode.AutoReadModes.Filter.TransponderValidTime";
-        log.info("Reader {}: setting parameter {} to {}", getName(), param, 1);
-        int state = readerModule.config().changeConfigPara(param, 1);
+        log.info("Reader {}: setting parameter {} to {}", getName(), TRANSPONDER_VALID_TIME_PARAMETER, TRANSPONDER_VALID_TIME);
+        int state = readerModule.config().changeConfigPara(TRANSPONDER_VALID_TIME_PARAMETER, TRANSPONDER_VALID_TIME);
 
-        if (state != 0) {
-            log.error("Reader {}: failed to set transponder valid time (error {})",
-                getName(), state);
+        if (state != ErrorCode.Ok) {
+            log.error("Reader {}: failed to set transponder valid time (error {})", getName(), state);
             return state;
         }
 
-        return 0;
+        return ErrorCode.Ok;
     }
 
     private int activateDataSelector(ReaderModule readerModule, String dataSelector) {
-        String param = String.format("OperatingMode.AutoReadModes.DataSelector.%s", dataSelector);
+        String param = String.format(DATA_SELECTOR_TEMPLATE_PARAMETER, dataSelector);
         log.info("Reader {}: activating data selector {} to {}", getName(), param, 0x1);
         int state = readerModule.config().changeConfigPara(param, 0x1);
-        if (state != 0) {
-            log.error("Reader {}: failed to set transmitted field {} (error {})",
-                getName(), param, state);
+        if (state != ErrorCode.Ok) {
+            log.error("Reader {}: failed to set transmitted field {} (error {})", getName(), param, state);
             return state;
         }
-        return 0;
+        return ErrorCode.Ok;
     }
 
     private int setTransmittedFields(ReaderModule readerModule) {
-        List<String> dataSelectors = List.of("Date", "Antenna", "UID", "Time");
-
-        for (String dataSelector: dataSelectors) activateDataSelector(readerModule, dataSelector);
-
-        return 0;
+        for (String dataSelector: DATA_SELECTORS) activateDataSelector(readerModule, DATA_SELECTORS);
+        return ErrorCode.Ok;
     }
 
     private int setSelectedAntennas(ReaderModule readerModule) {
-        String param = "AirInterface.Multiplexer.UHF.Internal.SelectedAntennas";
         byte value = getAntennaMask();
-        log.info("Reader {}: setting parameter {} to {}", getName(), param, value);
+        log.info("Reader {}: setting parameter {} to {}", getName(), SELECTED_ANTENNAS_PARAMETER, value);
 
-        int state = readerModule.config().changeConfigPara(param, value);
-        if (state != 0) {
-            log.error("Reader {}: failed to set to select antennas (error {})",
-                getName(), state);
+        int state = readerModule.config().changeConfigPara(SELECTED_ANTENNAS_PARAMETER, value);
+        if (state != ErrorCode.Ok) {
+            log.error("Reader {}: failed to set to select antennas (error {})", getName(), state);
             return state;
         }
 
-        return 0;
+        return ErrorCode.Ok;
     }
 
     private int enableMultiplexer(ReaderModule readerModule) {
-        String param = "AirInterface.Multiplexer.Enable";
-        int state = readerModule.config().changeConfigPara(param, true);
-        log.info("Reader {}: enabling parameter {} to {}", getName(), param, true);
-        if (state != 0) {
-            log.error("Reader {}: failed to enable multiplexer (error {})",
-                getName(), state);
+        int state = readerModule.config().changeConfigPara(MULTIPLEXER_ACTIVATION_PARAMETER, true);
+        log.info("Reader {}: enabling parameter {} to {}", getName(), MULTIPLEXER_ACTIVATION_PARAMETER, true);
+        if (state != ErrorCode.Ok) {
+            log.error("Reader {}: failed to enable multiplexer (error {})", getName(), state);
             return state;
         }
-        return 0;
+        return ErrorCode.Ok;
+    }
+
+    private int setPersistenceResetTime(ReaderModule readerModule) {
+        int state = readerModule.config().changeConfigPara(PERSISTANT_RESET_TIME_PARAMETER, PERSISTANT_RESET_TIME);
+        log.info("Reader {}: setting optimal persistant reset time", getName());
+        if (state != ErrorCode.Ok) {
+            log.error("Reader {}: failed to sett optimat persistant reset time (error {})", getName(), state);
+            return state;
+        }
+        return ErrorCode.Ok;
     }
 
     private int setReaderMode(ReaderModule readerModule) throws ReaderOperationException {
@@ -268,6 +285,9 @@ public class MRU400ReaderConfig extends ReaderConfig {
                 int state = readerModule.config().changeConfigPara(MODE_PARAMETER, MODE_TO_HEX.get("host"));
                 state = checkReturnCode(state, true);
                 if (state != ErrorCode.Ok) yield state;
+                state = setPersistenceResetTime(readerModule);
+                state = checkReturnCode(state, true);
+                if (state != ErrorCode.Ok) yield state;
                 yield ErrorCode.Ok;
             }
             case "notification" -> {
@@ -277,18 +297,18 @@ public class MRU400ReaderConfig extends ReaderConfig {
                 state = enableMultiplexer(readerModule);
                 state = checkReturnCode(state, true);
                 if (state != ErrorCode.Ok) yield state;
-                // state = setSelectedAntennas(readerModule);
-                // state = checkReturnCode(state, true);
-                // if (state != ErrorCode.Ok) yield state;
-                // state = setTransmittedFields(readerModule);
-                // state = checkReturnCode(state, true);
-                // if (state != ErrorCode.Ok) yield state;
-                // state = setConnectionHoldTime(readerModule);
-                // state = checkReturnCode(state, true);
-                // if (state != ErrorCode.Ok) yield state;
-                // state = setTransponderValidTime(readerModule);
-                // state = checkReturnCode(state, true);
-                // if (state != ErrorCode.Ok) yield state;
+                state = setSelectedAntennas(readerModule);
+                state = checkReturnCode(state, true);
+                if (state != ErrorCode.Ok) yield state;
+                state = setTransmittedFields(readerModule);
+                state = checkReturnCode(state, true);
+                if (state != ErrorCode.Ok) yield state;
+                state = setConnectionHoldTime(readerModule);
+                state = checkReturnCode(state, true);
+                if (state != ErrorCode.Ok) yield state;
+                state = setTransponderValidTime(readerModule);
+                state = checkReturnCode(state, true);
+                if (state != ErrorCode.Ok) yield state;
                 yield ErrorCode.Ok;
             }
             default -> {
@@ -304,8 +324,7 @@ public class MRU400ReaderConfig extends ReaderConfig {
         log.info("Reader {}: setting configured RSSI filters", getName());
 
         if (antennas.size() != rssiFilters.size()) {
-            log.error("Reader {}: antennas ({}) and rssiFilters ({}) must be the same length",
-                getName(), antennas.size(), rssiFilters);
+            log.error("Reader {}: antennas ({}) and rssiFilters ({}) must be the same length", getName(), antennas.size(), rssiFilters);
             return -1;
         }
 
@@ -322,14 +341,14 @@ public class MRU400ReaderConfig extends ReaderConfig {
             log.info("Reader {}: setting parameter {} to {}", getName(), param, rssiVal);
             int state = readerModule.config().changeConfigPara(param, rssiVal);
             state = checkReturnCode(state, true);
-            if (state != 0) {
+            if (state != ErrorCode.Ok) {
                 log.error("Reader {}: failed to set RSSI for antenna {} (error {})",
                     getName(), antenna, state);
                 return state;
             }
         }
 
-        return 0;
+        return ErrorCode.Ok;
     }
 
     private int setReaderOutputPowers(ReaderModule readerModule) throws ReaderOperationException {
@@ -376,15 +395,20 @@ public class MRU400ReaderConfig extends ReaderConfig {
     }
 
     private int setChannelPortNumber(ReaderModule readerModule) {
-        String param = "HostInterface.LAN.Remote.Channel1.PortNumber";
-        log.debug("Reader {}: setting parameter {} to {}", getName(), param, getListenerPort());
+        log.debug("Reader {}: setting parameter {} to {}", getName(), PORT_NUMBER_PARAMETER, getListenerPort());
         return switch (getMode()) {
             case "host"         -> {
                 log.error("Configuration value not expected for 'reader {}' with mode {}", getName(), getMode());
                 yield -1;
             }
             case "notification" -> {
-                int state = readerModule.config().changeConfigPara(param, (long) getListenerPort());
+                int port = getListenerPort();
+                if (isPortOpen(port)) { 
+                    int state = readerModule.config().changeConfigPara(param, (long) getListenerPort());
+                } else {
+                    log.error("Open port {} to correctly use reader {} in notification mode", port, getName());
+                    yield -1;
+                }
                 yield state;
             }
             default -> {
@@ -392,5 +416,14 @@ public class MRU400ReaderConfig extends ReaderConfig {
                 yield -1;
             }
         };
+    }
+
+    private boolean isPortOpen(int port) {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress(LOCALHOST, port), TIMEOUT);
+            return true; 
+        } catch (IOException e) {
+            return false; 
+        }
     }
 }
