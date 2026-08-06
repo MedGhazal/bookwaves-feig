@@ -41,10 +41,13 @@ public class NotificationListener implements IReaderListener, IConnectListener {
     private static final int MIN_STABLE_OBSERVATIONS = 3;
     private static final long MIN_STABLE_DURATION_MS = 750L;
     private static final int MAX_STABLE_RSSI = 39;
+    private static final long MAX_EVENT_VALIDITY_TIME  = 60 * 1000L; // 1 minute
+
+    private record TimestampedEvent(NotificationEvent event, long timestamp) {}
     
     private static final Logger log = LoggerFactory.getLogger(NotificationListener.class);
     private final ReaderModule reader;
-    private final ConcurrentLinkedQueue<NotificationEvent> eventQueue;
+    private final ConcurrentLinkedQueue<TimestampedEvent> eventQueue;
     private final AtomicInteger eventCount;
     private volatile boolean isConnected = false;
     private final int maxQueueSize;
@@ -219,7 +222,8 @@ public class NotificationListener implements IReaderListener, IConnectListener {
         event.readerTimestamp = readerTimestamp;
 
         updatePresence(event);
-        addEvent(event);
+        long now = System.currentTimeMillis();
+        addEvent(new TimestampedEvent(event, now));
 
         log.debug("{}: {} (RSSI values: {})", sourceLogName, event.epc,
             rssiList.stream()
@@ -284,7 +288,8 @@ public class NotificationListener implements IReaderListener, IConnectListener {
             event.timestamp = nowTimestamp();
             event.eventType = "IDENTIFICATION_EVENT";
             
-            addEvent(event);
+            long now = System.currentTimeMillis();
+            addEvent(new TimestampedEvent(event, now));
             log.debug("Identification event received");
         }
     }
@@ -367,7 +372,8 @@ public class NotificationListener implements IReaderListener, IConnectListener {
         transitionEvent.mediaId = state.lastMediaId;
         transitionEvent.secured = state.lastSecured;
         transitionEvent.pc = state.lastPc;
-        addEvent(transitionEvent);
+        long now = System.currentTimeMillis();
+        addEvent(new TimestampedEvent(transitionEvent, now));
     }
 
     private void emitRemovedEventsByTimeout() {
@@ -403,7 +409,8 @@ public class NotificationListener implements IReaderListener, IConnectListener {
                 unstableEvent.mediaId = state.lastMediaId;
                 unstableEvent.secured = state.lastSecured;
                 unstableEvent.pc = state.lastPc;
-                addEvent(unstableEvent);
+                long now = System.currentTimeMillis();
+                addEvent(new TimestampedEvent(unstableEvent, now));
             }
 
             NotificationEvent removedEvent = new NotificationEvent();
@@ -421,7 +428,8 @@ public class NotificationListener implements IReaderListener, IConnectListener {
             removedEvent.secured = state.lastSecured;
             removedEvent.pc = state.lastPc;
 
-            addEvent(removedEvent);
+            long now = System.currentTimeMillis();
+            addEvent(new TimestampedEvent(removedEvent, now));
             long totalRemoved = removedEventCount.incrementAndGet();
             log.debug("Tag removed by timeout: {} (timeout={}ms, totalRemovedEvents={})", epc, PRESENCE_TIMEOUT_MS, totalRemoved);
         }
@@ -654,9 +662,28 @@ public class NotificationListener implements IReaderListener, IConnectListener {
         presenceByEpc.clear();
     }
 
+    private void pruneExpiredEvents(long now) {
+        long cutoffTime = now - MAX_EVENT_VALIDITY_TIME;
+
+        while (true) {
+            TimestampedEvent head = eventQueue.peek();
+            if (head == null || head.timestamp() >= cutoffTime) {
+                break;
+            }
+            if (eventQueue.poll() != null) {
+                eventCount.decrementAndGet();
+                log.debug("Pruned expired event: {}", head.event().eventType);
+            }
+        }
+    }
+
     private void addEvent(NotificationEvent event) {
-        eventQueue.offer(event);
+
+        long now = System.currentTimeMillis();
+        eventQueue.offer(new TimestampedEvent(event, now));
         int currentSize = eventCount.incrementAndGet();
+
+        pruneExpiredEvents(now);
 
         // Keep queue size limited without O(n) queue size scans
         while (currentSize > maxQueueSize) {
