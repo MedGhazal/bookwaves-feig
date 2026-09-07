@@ -246,6 +246,32 @@ class ReaderProfilesTest {
     }
 
     @Test
+    @DisplayName("a configured tag timing is written in the reader's own steps")
+    void configuredTagTimingIsConvertedToSteps() {
+        ReaderConfig config = reader("NewGen", "notification");
+        config.setTransponderValidTime("5500");
+        config.setPersistenceResetTime("2000");
+
+        assertEquals(ParamValue.ofLong(55),
+            spec(ReaderProfiles.NEW_GEN, config, "OperatingMode.AutoReadModes.Filter.TransponderValidTime")
+                .desired());
+        assertEquals(ParamValue.ofLong(400),
+            spec(ReaderProfiles.NEW_GEN, config,
+                "Transponder.PersistenceReset.Antenna.No1.PersistenceResetTime").desired());
+    }
+
+    @Test
+    @DisplayName("never asks the reader not to repeat a tag")
+    void neverIsWrittenAsTheReadersOwnValue() {
+        ReaderConfig config = reader("NewGen", "notification");
+        config.setTransponderValidTime("never");
+
+        assertEquals(ParamValue.ofLong(65535),
+            spec(ReaderProfiles.NEW_GEN, config, "OperatingMode.AutoReadModes.Filter.TransponderValidTime")
+                .desired());
+    }
+
+    @Test
     @DisplayName("type lookup is case insensitive and generic means unmanaged")
     void typeLookup() {
         assertEquals(Optional.empty(), ReaderProfiles.find(null));

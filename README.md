@@ -72,11 +72,12 @@ See `config.example.yaml` for the complete configuration template.
 - Antenna numbers (as array, optional). Do not set for `hf` readers.
 - `type`: `GENERIC` (default), `NewGen` or `OldGen` — see [Configuration sync](#configuration-sync)
 - `rssiFilters`, `outputPowers`: per-antenna settings for synchronised readers
+- `transponderValidTime`, `persistenceResetTime`: tag timings in milliseconds, optional
 - `username`, `password`: reader login, `NewGen` only
 
 **Top-level keys:**
 - `hostName` - the address readers dial back to in notification mode. Written to synchronised notification readers so they know where to send tag reads. Leave unset to configure the reader's target address by hand.
-- `readerConfigurationPersistent` - whether configuration written to a reader is stored in its EEPROM. Defaults to `true`. When `false`, the reader reverts to its stored configuration on power cycle and is reconfigured on the next connection.
+- `readerConfigurationPersistent` - whether configuration written to a reader is stored in its EEPROM. Defaults to `true`. Leave it there: no tested reader honours `false`, and the parameters survive a power cycle either way.
 
 ### Configuration sync
 
@@ -153,6 +154,28 @@ antenna.
 A value is checked against the generation that has to store it, so `1.0` is accepted
 for a `NewGen` reader and rejected for an `OldGen` one.
 
+### Tag timings
+
+Two optional per-reader keys tune how the reader treats a tag it has already seen.
+Both are in **milliseconds** and default to `1000`:
+
+| key | what it sets | accepted values |
+|-----|--------------|-----------------|
+| `transponderValidTime` | how long before the same tag is reported again | `0` to `6553400`, in whole steps of `100`, or `never` |
+| `persistenceResetTime` | how long after a read the reader resets a tag's persistence flags | `0` to `327670`, in whole steps of `5`, or `never` |
+
+`never` asks the reader to report a tag only once, or never to reset persistence. A
+value the reader cannot count in whole steps is rejected at load rather than rounded,
+so a busy gate and a quiet self-checkout can be tuned without guessing what the reader
+stored. `OldGen` has no persistence reset and ignores `persistenceResetTime`, which is
+logged as a warning.
+
+```yaml
+  - name: gate-in
+    transponderValidTime: 5500    # report the same tag at most every 5.5 s
+    persistenceResetTime: 200
+```
+
 Managed and unmanaged readers mix freely — anything without a `type` is left exactly as
 an operator configured it:
 
@@ -197,9 +220,11 @@ and names two data selectors `AntennaNo` and `UID` rather than `Antenna` and `ID
 The channel address is written only when `hostName` is set. Without it everything else
 still synchronises, and the reader's notification target address must be set by hand.
 
-Setting `readerConfigurationPersistent: false` keeps changes out of the reader's EEPROM,
-so a power cycle restores whatever was there before — useful while finding the right
-`outputPowers` for a site.
+Setting `readerConfigurationPersistent: false` does not make a change temporary. Neither
+tested reader has a RAM-only configuration bank: the MRU400 refuses the request, the
+MRU102 accepts it and keeps the value anyway, and in both cases the parameters survive a
+power cycle. Treat every write as permanent, and change one parameter at a time when
+finding the right `outputPowers` for a site.
 
 ```bash
 # What does the service think of each reader?
@@ -832,6 +857,26 @@ java -cp "target/classes:target/dependency/*:libs/*" de.bookwaves.Main
 ```
 
 You can also use the provided VS Code launch configuration.
+
+### Running the tests
+
+```bash
+mvn test                # unit tests; no reader needed
+mvn test -Phardware     # against the readers in config.hardware.yaml
+```
+
+`config.hardware.yaml` is gitignored and has the same shape as `config.yaml`. Copy
+`config.example.yaml` to it and point it at the readers to test. Without that file, or
+when a reader does not answer, or when the SDK's native library is missing, the
+hardware tests are skipped with a reason rather than failed — so `-Phardware` is safe to
+run anywhere.
+
+The hardware run **writes to the readers**. It brings each one into agreement with
+`config.hardware.yaml`, then mutates one RSSI filter to prove drift is detected and only
+that parameter is repaired. Every write is permanent — no tested reader has a RAM-only
+configuration bank — so a run that crashes midway leaves the reader changed. The
+mutation prints the value it displaces before writing it, so it can be put back by hand
+from the output. Point `config.hardware.yaml` at test readers, not at a live gate.
 
 ### Developing with Devcontainer
 

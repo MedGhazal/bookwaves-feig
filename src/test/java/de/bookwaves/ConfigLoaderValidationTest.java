@@ -216,4 +216,50 @@ class ConfigLoaderValidationTest {
 
         assertTrue(messageOf(config).contains("name"), messageOf(config));
     }
+
+    @Test
+    @DisplayName("tag timings are optional")
+    void tagTimingsAreOptional() {
+        assertDoesNotThrow(() -> ConfigLoader.validateReaderConfigurations(List.of(managedReader())));
+    }
+
+    @Test
+    @DisplayName("a tag timing the reader cannot store is rejected, naming the reader and the key")
+    void unstorableTagTimingIsRejected() {
+        ReaderConfig config = managedReader();
+        config.setTransponderValidTime("150");
+
+        String message = messageOf(config);
+        assertTrue(message.contains("reader2"), message);
+        assertTrue(message.contains("transponderValidTime"), message);
+    }
+
+    @Test
+    @DisplayName("a persistence reset time the reader cannot store is rejected")
+    void unstorablePersistenceResetTimeIsRejected() {
+        ReaderConfig config = managedReader();
+        config.setPersistenceResetTime("327675");
+
+        assertTrue(messageOf(config).contains("persistenceResetTime"), messageOf(config));
+    }
+
+    @Test
+    @DisplayName("tag timings in whole reader steps are accepted, and so is never")
+    void storableTagTimingsAreAccepted() {
+        ReaderConfig config = managedReader();
+        config.setTransponderValidTime("5500");
+        config.setPersistenceResetTime("never");
+
+        assertDoesNotThrow(() -> ConfigLoader.validateReaderConfigurations(List.of(config)));
+    }
+
+    @Test
+    @DisplayName("a persistence reset time on a generation without persistence reset still loads")
+    void persistenceResetTimeOnOldGenLoads() {
+        ReaderConfig oldGen = oldGenReader();
+        oldGen.setOutputPowers(List.of(0.1, 0.5));
+        oldGen.setPersistenceResetTime("2000");
+
+        assertDoesNotThrow(() -> ConfigLoader.validateReaderConfigurations(List.of(oldGen)));
+    }
 }

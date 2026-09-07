@@ -18,6 +18,9 @@ public interface ReaderProfile {
     /** Whether readers of this generation support username and password login. */
     boolean supportsAuthentication();
 
+    /** Whether this generation exposes the transponder persistence reset. */
+    boolean supportsPersistenceReset();
+
     /** How this generation encodes antenna output power. */
     OutputPowerCodec outputPowerCodec();
 

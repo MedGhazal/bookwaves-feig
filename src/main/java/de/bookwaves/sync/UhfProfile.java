@@ -36,16 +36,8 @@ public record UhfProfile(
     /** {@code OperatingMode.Mode} value selecting notification mode. */
     public static final int NOTIFICATION_MODE = 0xC0;
 
-    /** How long a transponder stays valid before it is reported again. */
-    private static final StepCounted TRANSPONDER_VALID_TIME =
-        new StepCounted(Duration.ofSeconds(1), Duration.ofMillis(100));
-
     /** How long the reader holds the notification connection open. */
     private static final Duration CONNECTION_HOLD_TIME = Duration.ofSeconds(10);
-
-    /** How long after a read the reader resets the transponder persistence flags. */
-    private static final StepCounted PERSISTENCE_RESET_TIME =
-        new StepCounted(Duration.ofSeconds(1), Duration.ofMillis(5));
 
     /** Clearing this bit makes all antenna ports one reading point. */
     private static final boolean EACH_ANTENNA_PORT_IS_ITS_OWN_READING_POINT = false;
@@ -109,7 +101,7 @@ public record UhfProfile(
         for (int antenna : config.getAntennas()) {
             specs.add(new ParamSpec(
                 String.format(PERSISTENCE_RESET_TIME_PARAM, antenna),
-                ParamValue.ofLong(PERSISTENCE_RESET_TIME.value()),
+                ParamValue.ofLong(TagTiming.PERSISTENCE_RESET_TIME.steps(config.getPersistenceResetTime())),
                 "persistence reset time for antenna " + antenna));
         }
     }
@@ -130,7 +122,7 @@ public record UhfProfile(
 
         specs.add(new ParamSpec(
             autoReadRoot + ".Filter.TransponderValidTime",
-            ParamValue.ofLong(TRANSPONDER_VALID_TIME.value()),
+            ParamValue.ofLong(TagTiming.TRANSPONDER_VALID_TIME.steps(config.getTransponderValidTime())),
             "transponder valid time"));
         specs.add(new ParamSpec(
             notificationTarget.connectionHoldTimeParameter(),
@@ -147,14 +139,5 @@ public record UhfProfile(
             notificationTarget.addressParameter(),
             value,
             "address the reader sends notifications to")));
-    }
-
-    /** A duration together with the step the reader counts it in, which differs per parameter. */
-    private record StepCounted(Duration duration, Duration step) {
-
-        /** The number the reader stores for this duration. */
-        long value() {
-            return duration.toMillis() / step.toMillis();
-        }
     }
 }

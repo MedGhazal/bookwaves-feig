@@ -35,6 +35,8 @@ public class ReaderConfig {
     private String username;
     private String password;
     private String type = ReaderProfiles.GENERIC;
+    private String transponderValidTime;
+    private String persistenceResetTime;
 
     public String getName() {
         return name;
@@ -139,6 +141,24 @@ public class ReaderConfig {
     public boolean hasCredentials() {
         return username != null && !username.isBlank()
             && password != null && !password.isBlank();
+    }
+
+    /** Milliseconds before the same tag is reported again, {@code never}, or null for the default. */
+    public String getTransponderValidTime() {
+        return transponderValidTime;
+    }
+
+    public void setTransponderValidTime(String transponderValidTime) {
+        this.transponderValidTime = transponderValidTime;
+    }
+
+    /** Milliseconds after a read before persistence flags reset, {@code never}, or null for the default. */
+    public String getPersistenceResetTime() {
+        return persistenceResetTime;
+    }
+
+    public void setPersistenceResetTime(String persistenceResetTime) {
+        this.persistenceResetTime = persistenceResetTime;
     }
 
     public List<Integer> getAntennas() {

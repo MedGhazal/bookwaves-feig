@@ -31,9 +31,12 @@ old
 
 # Local configuration file (must be provided by user)
 config.yaml
+config.hardware.yaml
 
 # Keep example configuration
 !config.example.yaml
 
 NOTES.md
 .Trash*
+.scratch
+.claude

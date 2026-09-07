@@ -3,6 +3,7 @@ package de.bookwaves;
 import de.bookwaves.sync.OutputPowerCodec;
 import de.bookwaves.sync.ReaderMode;
 import de.bookwaves.sync.ReaderProfile;
+import de.bookwaves.sync.TagTiming;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -287,6 +288,14 @@ public class ConfigLoader {
             }
         }
 
+        requireStorable(name, TagTiming.TRANSPONDER_VALID_TIME, reader.getTransponderValidTime());
+        requireStorable(name, TagTiming.PERSISTENCE_RESET_TIME, reader.getPersistenceResetTime());
+
+        if (!profile.supportsPersistenceReset() && reader.getPersistenceResetTime() != null) {
+            log().warn("Reader {} is type {}, which has no persistence reset; "
+                + "the configured persistenceResetTime is ignored", name, profile.id());
+        }
+
         if (profile.supportsAuthentication() && !reader.hasCredentials()) {
             log().warn("Reader {} is type {} but has no username and password; "
                 + "configuration sync will fail if the reader is password protected",
@@ -295,6 +304,14 @@ public class ConfigLoader {
         if (!profile.supportsAuthentication() && reader.hasCredentials()) {
             log().warn("Reader {} is type {}, which has no user login; "
                 + "the configured username and password are ignored", name, profile.id());
+        }
+    }
+
+    private static void requireStorable(String name, TagTiming timing, String value) throws Exception {
+        if (!timing.isSupported(value)) {
+            throw new Exception("Invalid reader configuration for '" + name + "': "
+                + timing.key() + " " + value + " is not supported; accepted are "
+                + timing.supportedValues());
         }
     }
 
