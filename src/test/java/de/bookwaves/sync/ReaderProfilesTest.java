@@ -32,6 +32,19 @@ class ReaderProfilesTest {
         return profile.parametersFor(config, hostName).stream().map(ParamSpec::name).toList();
     }
 
+    private static ParamValue desired(List<ParamSpec> specs, String name) {
+        return specs.stream()
+            .filter(spec -> spec.name().equals(name))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError("the profile does not write " + name))
+            .desired();
+    }
+
+    /** Air interface, but a host mode read names its antennas in the command instead. */
+    private static final List<String> MULTIPLEXER = List.of(
+        "AirInterface.Multiplexer.Enable",
+        "AirInterface.Multiplexer.UHF.Internal.SelectedAntennas");
+
     @Test
     @DisplayName("the generations use different operating mode parameter trees")
     void generationsUseDifferentTrees() {
@@ -71,6 +84,36 @@ class ReaderProfilesTest {
         assertFalse(hostNames.contains("HostInterface.LAN.Remote.Channel1.PortNumber"));
         assertFalse(hostNames.contains("HostInterface.LAN.Remote.Channel1.Address"));
         assertTrue(hostNames.contains("OperatingMode.Mode"));
+    }
+
+    @Test
+    @DisplayName("host mode writes every parameter that is not there for notifications")
+    void hostModeCoversTheAirInterface() {
+        assertEquals(List.of(
+            "OperatingMode.Mode",
+            "AirInterface.Antenna.UHF.No1.RSSIFilter",
+            "AirInterface.Antenna.UHF.No1.OutputPower",
+            "AirInterface.Antenna.UHF.No2.RSSIFilter",
+            "AirInterface.Antenna.UHF.No2.OutputPower",
+            "Transponder.PersistenceReset.Mode",
+            "Transponder.PersistenceReset.Antenna.No1.PersistenceResetTime",
+            "Transponder.PersistenceReset.Antenna.No2.PersistenceResetTime"),
+            names(ReaderProfiles.NEW_GEN, reader("NewGen", "host"), HOST));
+    }
+
+    @Test
+    @DisplayName("what host mode leaves out is only ever used for notifications")
+    void hostModeOmitsOnlyNotificationParameters() {
+        List<String> host = names(ReaderProfiles.NEW_GEN, reader("NewGen", "host"), HOST);
+
+        for (String name : names(ReaderProfiles.NEW_GEN, reader("NewGen", "notification"), HOST)) {
+            if (!host.contains(name)) {
+                assertTrue(
+                    name.contains("AutoReadModes") || name.contains("Channel1")
+                        || MULTIPLEXER.contains(name),
+                    name + " is not a notification parameter, so host mode should write it");
+            }
+        }
     }
 
     @Test
@@ -225,6 +268,28 @@ class ReaderProfilesTest {
         assertTrue(parameters.contains("OperatingMode.NotificationMode.DataSelector.AntennaNo"));
         assertTrue(parameters.contains("OperatingMode.NotificationMode.DataSelector.UID"));
         assertTrue(parameters.contains("OperatingMode.NotificationMode.DataSelector.Time"));
+    }
+
+    @Test
+    @DisplayName("the older generation reads the antenna number off the RSSI selector")
+    void oldGenTakesTheAntennaNumberFromRssi() {
+        List<ParamSpec> specs =
+            ReaderProfiles.OLD_GEN.parametersFor(reader("OldGen", "notification"), HOST);
+
+        // The reader stores the antenna number either plainly or with RSSI, never both.
+        assertEquals(ParamValue.bool(true),
+            desired(specs, "OperatingMode.NotificationMode.DataSelector.RSSI"));
+        assertEquals(ParamValue.bool(false),
+            desired(specs, "OperatingMode.NotificationMode.DataSelector.AntennaNo"));
+    }
+
+    @Test
+    @DisplayName("the current generation has one antenna selector and leaves nothing off")
+    void newGenHasNoDisabledSelector() {
+        List<String> parameters = names(ReaderProfiles.NEW_GEN, reader("NewGen", "notification"), HOST);
+
+        assertTrue(parameters.contains("OperatingMode.AutoReadModes.DataSelector.Antenna"));
+        assertFalse(parameters.contains("OperatingMode.AutoReadModes.DataSelector.RSSI"));
     }
 
     @Test

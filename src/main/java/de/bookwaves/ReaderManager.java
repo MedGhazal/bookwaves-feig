@@ -219,12 +219,6 @@ public class ReaderManager {
                 return new SyncReport(config.getName(), java.util.List.of(), java.util.List.of());
             }
 
-            if (!config.isNotificationMode()) {
-                log.warn("Reader {} runs in host mode, where configuration sync covers only "
-                    + "the operating mode and antenna settings; the remaining host mode "
-                    + "settings from the README must still be set by hand", config.getName());
-            }
-
             ReaderModule module;
             try {
                 module = getModule();

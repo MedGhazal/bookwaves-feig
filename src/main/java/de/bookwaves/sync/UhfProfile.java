@@ -16,6 +16,7 @@ import java.util.List;
  * @param id                        the {@code type} value in {@code config.yaml}
  * @param autoReadRoot              the operating-mode subtree this generation uses
  * @param dataSelectors             the fields transmitted with each notification
+ * @param excludedDataSelectors     fields that must stay off for the transmitted ones to work
  * @param notificationTarget        where this generation keeps its notification target
  * @param outputPowerCodec          how this generation encodes antenna output power
  * @param supportsAuthentication    whether the generation has user login
@@ -25,6 +26,7 @@ public record UhfProfile(
     String id,
     String autoReadRoot,
     List<String> dataSelectors,
+    List<String> excludedDataSelectors,
     NotificationTarget notificationTarget,
     OutputPowerCodec outputPowerCodec,
     boolean supportsAuthentication,
@@ -107,6 +109,8 @@ public record UhfProfile(
     }
 
     private void addNotificationParameters(List<ParamSpec> specs, ReaderConfig config, String hostName) {
+        // The multiplexer is an air interface setting, but a host mode read names the
+        // antennas it wants in the inventory command, so only notifications need it.
         specs.add(new ParamSpec(MULTIPLEXER_ENABLE, ParamValue.bool(true), "antenna multiplexer"));
         specs.add(new ParamSpec(
             SELECTED_ANTENNAS,
@@ -118,6 +122,13 @@ public record UhfProfile(
                 autoReadRoot + ".DataSelector." + selector,
                 ParamValue.bool(true),
                 "transmit " + selector + " with each notification"));
+        }
+
+        for (String selector : excludedDataSelectors) {
+            specs.add(new ParamSpec(
+                autoReadRoot + ".DataSelector." + selector,
+                ParamValue.bool(false),
+                "do not transmit " + selector + " with each notification"));
         }
 
         specs.add(new ParamSpec(

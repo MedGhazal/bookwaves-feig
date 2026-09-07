@@ -1375,33 +1375,28 @@ public class Main {
                     throw new Exception("Notification listener is not available");
                 }
  
-                int antenna = firstConfiguredAntenna(managedReader.getConfig());
-                log.debug("Notification security op for {}: pause RF (epc={} secure={} configuredAntennas={} resumeAntenna={})",
-                    readerName, normalizedEpc, secure, managedReader.getConfig().getAntennas(), antenna);
-
-                int rfOffRc = reader.rf().off();
-                if (rfOffRc != ErrorCode.Ok) {
-                    throw new Exception("Failed to pause notification mode (RF off): " + reader.lastErrorStatusText() +
-                        " (code: " + rfOffRc + ")");
+                TagItem tagItem = listener.getLatestTagItemByEpc(normalizedEpc);
+                if (tagItem == null || !tagItem.isValid()) {
+                    throw new Exception("No notification event TagItem available for EPC " + normalizedEpc +
+                        " - wait for a notification event for this EPC and retry");
                 }
-                log.debug("RF off successful for {}", readerName);
+
+                int writeAntenna = listener.lastSeenAntenna(tagItem);
+                int resumeAntenna = firstConfiguredAntenna(managedReader.getConfig());
+                log.debug("Notification security op for {}: pause RF (epc={} secure={} writeAntenna={} resumeAntenna={})",
+                    readerName, normalizedEpc, secure, writeAntenna, resumeAntenna);
+
+                pauseNotifications(reader, readerName, writeAntenna);
 
                 try {
-                    TagItem tagItem = listener.getLatestTagItemByEpc(normalizedEpc);
-                    if (tagItem == null || !tagItem.isValid()) {
-                        throw new Exception("No notification event TagItem available for EPC " + normalizedEpc +
-                            " - wait for a notification event for this EPC and retry");
-                    }
                     modifySecurityBitWithoutInventory(reader, normalizedEpc, tag, tagItem);
                 } finally {
-                    //System.out.println(antenna);
-                    //Thread.sleep(2000); // Small delay to ensure tag is ready before resuming notifications
-                    int rfOnRc = reader.rf().on(antenna, false, false); // maintainhostmode = false, dcOn = false
+                    int rfOnRc = reader.rf().on(resumeAntenna, false, false); // maintainHostMode = false, dcOn = false
                     if (rfOnRc != ErrorCode.Ok) {
                         log.error("Failed to resume notification mode for {} after security update (RF on rc={} status={})",
                             readerName, rfOnRc, reader.lastErrorStatusText());
                     } else {
-                        log.debug("RF on successful for {} (antenna={})", readerName, antenna);
+                        log.debug("RF on successful for {} (antenna={})", readerName, resumeAntenna);
                     }
                 }
 
@@ -1514,6 +1509,27 @@ public class Main {
         }
 
         return listenerPort;
+    }
+
+    /**
+     * Stops the reader auto reading, on the antenna that last saw the tag when the
+     * notification named one.
+     *
+     * <p>Holding host mode keeps the multiplexer from rotating away mid write. Without an
+     * antenna the field stays wherever the multiplexer stopped.
+     */
+    private static void pauseNotifications(ReaderModule reader, String readerName, int writeAntenna)
+            throws Exception {
+        int returnCode = writeAntenna > 0
+            ? reader.rf().on(writeAntenna, true, false) // maintainHostMode = true, dcOn = false
+            : reader.rf().off();
+
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Failed to pause notification mode: " + reader.lastErrorStatusText() +
+                " (code: " + returnCode + ")");
+        }
+        log.debug("Notifications paused for {} (antenna {})", readerName,
+            writeAntenna > 0 ? String.valueOf(writeAntenna) : "as left by the multiplexer");
     }
 
     private static int firstConfiguredAntenna(ReaderConfig config) {

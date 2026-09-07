@@ -83,10 +83,14 @@ readerConfigurationPersistent: true
 # readable only by the account running the service, and never bake it into an image.
 readers:
   - name: reader1
+    type: NewGen
     address: 192.168.1.100
     port: 10001
     mode: host
-    antennas: [4]
+    antennas: [1]               # NewGen: 1 is external, 2 internal
+    rssiFilters: [60]
+    outputPowers: [0.1]
+    persistenceResetTime: 5
   - name: reader2
     type: NewGen
     address: 192.168.1.101

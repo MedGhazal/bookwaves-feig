@@ -21,6 +21,7 @@ public final class ReaderProfiles {
         "NewGen",
         "OperatingMode.AutoReadModes",
         List.of("Date", "Antenna", "IDD", "Time"),
+        List.of(),
         NotificationTarget.NEW_GEN,
         OutputPowerCodec.NEW_GEN,
         true,
@@ -31,7 +32,9 @@ public final class ReaderProfiles {
     public static final ReaderProfile OLD_GEN = new UhfProfile(
         "OldGen",
         "OperatingMode.NotificationMode",
-        List.of("AntennaNo", "UID", "Time"),
+        // RSSI carries the antenna number as well, and the reader takes one or the other.
+        List.of("RSSI", "UID", "Time"),
+        List.of("AntennaNo"),
         NotificationTarget.OLD_GEN,
         OutputPowerCodec.OLD_GEN,
         false,

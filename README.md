@@ -113,10 +113,12 @@ address from here could put it beyond reach of the host that would have to chang
 back, and a credential change can lock the reader in a way only the manufacturer can
 undo. Set those through ISOStart or the reader's web interface.
 
-**Host mode is only partially covered.** A `NewGen` or `OldGen` reader in host mode has
-its operating mode and antenna settings synchronised, but not the remaining host-mode
-settings listed under [Host mode configuration](#host-mode-configuration); the service
-logs a warning saying so. Set the rest by hand for now.
+**Host mode is covered too.** A `NewGen` or `OldGen` reader in host mode has everything
+under [Host mode configuration](#host-mode-configuration) synchronised. It gets no
+notification settings, because it has none: the data selectors, the transponder valid
+time and the notification target only exist to describe notifications, and a host mode
+read names the antennas it wants in the inventory command rather than through the
+antenna multiplexer.
 
 ### Configuration sync examples
 
@@ -191,16 +193,17 @@ readers:
     rssiFilters: [55]
     outputPowers: [0.5]
 
-  - name: staff-desk            # managed but host mode: only partly synchronised
+  - name: staff-desk            # managed host mode reader; no notification settings
     type: NewGen
     address: 192.168.1.103
     port: 10001
     mode: host
     username: admin
     password: "CHANGE-ME"
-    antennas: [4]
+    antennas: [2]               # NewGen: 1 is external, 2 internal
     rssiFilters: [60]
     outputPowers: [1.0]
+    persistenceResetTime: 5     # so a tag answers again straight away
 
   - name: hf-retrofit           # not managed; sync is uhf only
     address: 192.168.1.105
@@ -305,15 +308,18 @@ NOTE: Both power and filter need to be tested and adjusted according to the phys
 
 #### Host mode configuration
 
+Step 1 is synchronised for a `NewGen` or `OldGen` reader and step 2 for a `NewGen` one,
+so set those here only for a `GENERIC` reader.
+
 1. Set the operating mode "OperatingMode" to "Host mode"
-2. Reduce "Transponder -> PersistenceReset" for each antenna to e.g. `1 x 5ms`. This is needed to submit subsequent requets to an RFID tag quickly.
+2. Reduce "Transponder -> PersistenceReset" for each antenna to e.g. `1 x 5ms`. This is needed to submit subsequent requets to an RFID tag quickly. In `config.yaml` this is `persistenceResetTime: 5`.
    - NOTE: This setting is not exposed by the ISOStart software for older models (e.g. MRU102). For those you need to set them manually via TCP configuration calls according to the documentation (CFG16: Persistence Reset).
 
 #### Notification mode configuration
 1. Set the operating mode "OperatingMode" to "Notification mode"
 2. Make sure that the correct fields are transmitted by the NotificationMode:
    - New readers: "OperatingMode -> AutoReadModes -> DataSelector" check "Antenna", "Date", "IDD" and "Time".
-   - Old readers: "OperatingMode -> NotificationMode -> DataSelector" check  "UID", "Time", "RSSI".
+   - Old readers: "OperatingMode -> NotificationMode -> DataSelector" check  "UID", "Time", "RSSI". "RSSI" transmits the antenna number together with the signal strength, so leave "AntennaNo" unchecked: the reader stores the antenna number one way or the other, not both.
 3. In the same menu, set "Filter -> TransponderValidTime" to a low value like `1 x 100ms`. This is the rate at which the reader detechs changes (e.g. signal strength of tag) for tags already in the field. Note: new tags are detected instantly, regardless of this setting.
 4. In "AirInterface -> Multiplexer", check "Enable", as well as the antennas you want to use. Here you could check multiple to make a gate or checkout terminal to use multiple antennas at the same time.
 5. Set the target for new notifications to your bookwaves-feig deployment:

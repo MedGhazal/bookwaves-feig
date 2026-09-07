@@ -248,6 +248,27 @@ public class NotificationListener implements IReaderListener, IConnectListener {
         return !allowedAntennas.isEmpty() && !tagItem.rssiValues().isEmpty() && rssiList.isEmpty();
     }
 
+    /** The antenna the tag was last reported on, or 0 when the notification named none. */
+    public int lastSeenAntenna(TagItem tagItem) {
+        return tagItem == null ? 0 : strongestAntenna(extractAllowedRssiValues(tagItem));
+    }
+
+    /**
+     * The antenna with the strongest signal, or 0 when none was reported. A reader that
+     * reports no signal strength leaves the first antenna.
+     */
+    static int strongestAntenna(List<NotificationEvent.AntennaRssi> readings) {
+        int antenna = 0;
+        int strongest = 0;
+        for (NotificationEvent.AntennaRssi reading : readings) {
+            if (antenna == 0 || reading.rssi > strongest) {
+                antenna = reading.antennaNumber;
+                strongest = reading.rssi;
+            }
+        }
+        return antenna;
+    }
+
     private HfDataBlocks extractHfDataBlocks(BrmItem brmItem) {
         if (!hfProtocol || brmItem == null) {
             return null;
