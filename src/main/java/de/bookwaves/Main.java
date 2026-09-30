@@ -1592,7 +1592,7 @@ public class Main {
     /**
      * Check inventory response by checking the return code and ensure a tag is in the field
      */
-    private static void ensureTagInField(ReaderModule reader, int returnCode) {
+    private static void ensureTagInField(ReaderModule reader, int returnCode) throws Exception {
         if (returnCode != ErrorCode.Ok) {
             throw new Exception("Inventory failed: " + reader.lastErrorStatusText());
         }
@@ -1606,7 +1606,7 @@ public class Main {
     /**
      * Check inventory response by checking the return code and ensure a single tag is in the field
      */
-    private static void ensureSingleTagInField(ReaderModule reader, int returnCode) {
+    private static void ensureSingleTagInField(ReaderModule reader, int returnCode) throws Exception {
         ensureTagInField(reader, returnCode);
         if (reader.hm().itemCount() > 1) {
             throw new Exception("Multiple tags found - please ensure only one tag is in the field");
@@ -1884,7 +1884,7 @@ public class Main {
                 );
             }
 
-            if (returnCode != ErrorCode.OK) {
+            if (returnCode != ErrorCode.Ok) {
                 throw new Exception("Failed to lock memory banks after successful write verification for EPC " +
                                   expectedEpcHex + ": " + reader.lastErrorStatusText() +
                                   " (ISO error: " + freshEpcTag.lastIsoError() + ")");
@@ -2060,7 +2060,7 @@ public class Main {
 
         // Find the tag with NEW EPC
         String newEpcHex = newTag.getEpcHexString();
-        ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, newEpcHex)
+        ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, newEpcHex);
         if (freshEpcTag == null) {
             throw new Exception("Could not re-select tag with new EPC: " + newEpcHex);
         }
