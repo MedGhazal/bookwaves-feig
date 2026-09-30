@@ -13,6 +13,7 @@ import de.feig.fedm.Connector;
 import de.feig.fedm.ErrorCode;
 import de.feig.fedm.InventoryParam;
 import de.feig.fedm.ReaderModule;
+import de.feig.fedm.ReaderStatus;
 import de.feig.fedm.RequestMode;
 import de.feig.fedm.TagItem;
 import de.feig.fedm.taghandler.ThBase;
@@ -47,9 +48,9 @@ public class Main {
     private static ReaderManager readerManager;
     
     // Shared operation pacing and retry configuration for RF operations
-    private static final int MAX_RETRIES = 10;
-    private static final int OPERATION_SETTLE_MS = 100; // 10 might be enough analyze, but maybe writes need more?
-    private static final int THREAD_SLEEP_TIME = 500;
+    private static final int MAX_RETRIES = 2;
+    private static final int OPERATION_SETTLE_MS = 20; // 10 might be enough analyze, but maybe writes need more?
+    private static final int THREAD_SLEEP_TIME = 50;
     private static final int HF_READ_START_BLOCK = 0;
     private static final int HF_READ_BLOCK_COUNT = 16;
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -1587,6 +1588,30 @@ public class Main {
             return "{}";
         }
     }
+        
+    /**
+     * Check inventory response by checking the return code and ensure a tag is in the field
+     */
+    private static void ensureTagInField(ReaderModule reader, int returnCode) {
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Inventory failed: " + reader.lastErrorStatusText());
+        }
+        
+        if (reader.hm().itemCount() == 0) {
+            throw new Exception("No tag found in field");
+        }
+    }
+
+        
+    /**
+     * Check inventory response by checking the return code and ensure a single tag is in the field
+     */
+    private static void ensureSingleTagInField(ReaderModule reader, int returnCode) {
+        ensureTagInField(reader, returnCode);
+        if (reader.hm().itemCount() > 1) {
+            throw new Exception("Multiple tags found - please ensure only one tag is in the field");
+        }
+    }
 
     /**
      * Initialize a tag with new EPC and passwords.
@@ -1596,18 +1621,7 @@ public class Main {
         InventoryParam inventoryParam = new InventoryParam();
         inventoryParam.setAntennas(config.getAntennaMask());
         int returnCode = reader.hm().inventory(true, inventoryParam);
-        
-        if (returnCode != ErrorCode.Ok) {
-            throw new Exception("Inventory failed: " + reader.lastErrorStatusText());
-        }
-        
-        if (reader.hm().itemCount() == 0) {
-            throw new Exception("No tag found in field");
-        }
-
-        if (reader.hm().itemCount() > 1) {
-            throw new Exception("Multiple tags found - please ensure only one tag is in the field");
-        }
+        ensureSingleTagInField(reader, returnCode);
 
         byte[] killPassword = newTag.getKillPassword();
         byte[] accessPassword = newTag.getAccessPassword();
@@ -1642,35 +1656,71 @@ public class Main {
         int totalBlocks = pcAndEpc.length / 2; // PC (1 block) + EPC (variable) blocks
 
         // Get the tag handler
-        try (ThBase handler = reader.hm().createTagHandler(0)) {
+        // try (ThBase handler = reader.hm().createTagHandler(0)) {
+        ThBase handler = reader.hm().createTagHandler(0);
+        if (!(handler instanceof ThEpcClass1Gen2)) {
+            throw new Exception("Tag is not EPC Gen2 compatible");
+        }
+
+        ThEpcClass1Gen2 epcTag = (ThEpcClass1Gen2) handler;
+
+        // Step 1: Write kill + access passwords together to Reserved bank (with retry)
+        // Kill password at word 0-1 (4 bytes), access password at word 2-3 (4 bytes)
+        // Total: 8 bytes = 4 blocks, starting at word 0
+        DataBuffer passwordsData = new DataBuffer(bothPasswords);
+        returnCode = writeWithRetry(
+            epcTag,
+            ThEpcClass1Gen2.Bank.Reserved,
+            0, // Start at word address 0 (kill password location)
+            4, // 8 bytes = 4 words/blocks
+            passwordsData
+        );
+
+        while (returnCode == ReaderStatus.NoTag) {
+            log.info("Retry writing the reserverd bank in the initialization operation with a fresh tag handler");
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureSingleTagInField(reader, returnCode);
+            handler = reader.hm().createTagHandler(0);
             if (!(handler instanceof ThEpcClass1Gen2)) {
                 throw new Exception("Tag is not EPC Gen2 compatible");
             }
-
-            ThEpcClass1Gen2 epcTag = (ThEpcClass1Gen2) handler;
-
-            // Step 1: Write kill + access passwords together to Reserved bank (with retry)
-            // Kill password at word 0-1 (4 bytes), access password at word 2-3 (4 bytes)
-            // Total: 8 bytes = 4 blocks, starting at word 0
-            DataBuffer passwordsData = new DataBuffer(bothPasswords);
-            returnCode = writeWithRetry(
+            epcTag = (ThEpcClass1Gen2) handler;
+            returnCode = readWithRetry(
                 epcTag,
                 ThEpcClass1Gen2.Bank.Reserved,
                 0, // Start at word address 0 (kill password location)
                 4, // 8 bytes = 4 words/blocks
                 passwordsData
             );
+        }
 
-            if (returnCode != ErrorCode.Ok) {
-                throw new Exception("Failed to write passwords: " + reader.lastErrorStatusText() +
-                                  " (ISO error: " + epcTag.lastIsoError() + ")");
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Failed to write passwords: " + reader.lastErrorStatusText() +
+                              " (ISO error: " + epcTag.lastIsoError() + ")");
+        }
+
+        pauseBetweenOperations("INIT_PASSWORDS_WRITE -> INIT_PC_EPC_WRITE", newTag.getEpcHexString());
+
+        // Step 2: Write PC + EPC together (PC is 1 word = 1 block, EPC follows immediately)
+        DataBuffer pcEpcData = new DataBuffer(pcAndEpc);
+
+        returnCode = writeWithRetry(
+            epcTag,
+            ThEpcClass1Gen2.Bank.Epc,
+            1, // Start at word address 1 (PC is at word 1, EPC starts at word 2)
+            totalBlocks,
+            pcEpcData
+        );
+
+        while (returnCode == ReaderStatus.NoTag) {
+            log.info("Retry writing the epc bank in the initialization operation with a fresh tag handler");
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureSingleTagInField(reader, returnCode);
+            handler = reader.hm().createTagHandler(0);
+            if (!(handler instanceof ThEpcClass1Gen2)) {
+                throw new Exception("Tag is not EPC Gen2 compatible");
             }
-
-            pauseBetweenOperations("INIT_PASSWORDS_WRITE -> INIT_PC_EPC_WRITE", newTag.getEpcHexString());
-
-            // Step 2: Write PC + EPC together (PC is 1 word = 1 block, EPC follows immediately)
-            DataBuffer pcEpcData = new DataBuffer(pcAndEpc);
-
+            epcTag = (ThEpcClass1Gen2) handler;
             returnCode = writeWithRetry(
                 epcTag,
                 ThEpcClass1Gen2.Bank.Epc,
@@ -1678,11 +1728,11 @@ public class Main {
                 totalBlocks,
                 pcEpcData
             );
+        }
 
-            if (returnCode != ErrorCode.Ok) {
-                throw new Exception("Failed to write PC+EPC: " + reader.lastErrorStatusText() +
-                                  " (ISO error: " + epcTag.lastIsoError() + ")");
-            }
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Failed to write PC+EPC: " + reader.lastErrorStatusText() +
+                              " (ISO error: " + epcTag.lastIsoError() + ")");
         }
 
         // CRITICAL: After writing EPC, must re-inventory to get fresh tag handler
@@ -1708,110 +1758,139 @@ public class Main {
                 ") - refusing to lock due to ambiguous target");
         }
 
-        String expectedEpcHex = newTag.getEpcHexString();
-        DataBuffer accessPwdData = new DataBuffer(accessPassword);
-        DataBuffer reservedVerifyData = new DataBuffer();
-        ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, expectedEpcHex);
-        returnCode = readWithRetry(
-            freshEpcTag,
-            ThEpcClass1Gen2.Bank.Reserved,
-            0,
-            4,
-            reservedVerifyData,
-            accessPwdData
-        );
-
         // Verify the tag has the correct NEW EPC, verify data by read-back, then lock.
-        // String expectedEpcHex = newTag.getEpcHexString();
-        // try (ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, expectedEpcHex)) {
-        //     if (freshEpcTag == null) {
-        //         throw new Exception("Tag EPC verification failed - expected " + expectedEpcHex + " but not found in field");
-        //     }
+        String expectedEpcHex = newTag.getEpcHexString();
+        try (ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, expectedEpcHex)) {
+            if (freshEpcTag == null) {
+                throw new Exception("Tag EPC verification failed - expected " + expectedEpcHex + " but not found in field");
+            }
 
-        //     DataBuffer accessPwdData = new DataBuffer(accessPassword);
+            DataBuffer accessPwdData = new DataBuffer(accessPassword);
 
-        //     // Step 3: Verify Reserved bank (kill + access passwords) before lock.
-        //     DataBuffer reservedVerifyData = new DataBuffer();
-        //     returnCode = readWithRetry(
-        //         freshEpcTag,
-        //         ThEpcClass1Gen2.Bank.Reserved,
-        //         0,
-        //         4,
-        //         reservedVerifyData,
-        //         accessPwdData
-        //     );
+            // Step 3: Verify Reserved bank (kill + access passwords) before lock.
+            DataBuffer reservedVerifyData = new DataBuffer();
+            returnCode = readWithRetry(
+                freshEpcTag,
+                ThEpcClass1Gen2.Bank.Reserved,
+                0,
+                4,
+                reservedVerifyData,
+                accessPwdData
+            );
 
-        //     if (returnCode != ErrorCode.Ok) {
-        //         throw new Exception("Failed to verify Reserved bank before lock: " + reader.lastErrorStatusText() +
-        //             " (ISO error: " + freshEpcTag.lastIsoError() + ")");
-        //     }
+            while (returnCode == ReaderStatus.NoTag) {
+                log.info("Retry reading the reserved bank in the initialization operation with a fresh tag handler");
+                returnCode = reader.hm().inventory(true, inventoryParam);
+                ensureSingleTagInField(reader, returnCode);
+                handler = reader.hm().createTagHandler(0);
+                if (!(handler instanceof ThEpcClass1Gen2)) {
+                    throw new Exception("Tag is not EPC Gen2 compatible");
+                }
+                epcTag = (ThEpcClass1Gen2) handler;
+                returnCode = readWithRetry(
+                    freshEpcTag,
+                    ThEpcClass1Gen2.Bank.Reserved,
+                    0,
+                    4,
+                    reservedVerifyData,
+                    accessPwdData
+                );
+            }
 
-        //     byte[] actualReserved = reservedVerifyData.data();
-        //     if (!Arrays.equals(actualReserved, bothPasswords)) {
-        //         throw new Exception("Reserved bank verification mismatch before lock (expected=" +
-        //             bytesToHex(bothPasswords) + ", actual=" + bytesToHex(actualReserved) + ")");
-        //     }
+            if (returnCode != ErrorCode.Ok) {
+                throw new Exception("Failed to verify Reserved bank before lock: " + reader.lastErrorStatusText() +
+                    " (ISO error: " + freshEpcTag.lastIsoError() + ")");
+            }
 
-        //     pauseBetweenOperations("INIT_RESERVED_VERIFY -> INIT_EPC_VERIFY", expectedEpcHex);
+            byte[] actualReserved = reservedVerifyData.data();
+            if (!Arrays.equals(actualReserved, bothPasswords)) {
+                throw new Exception("Reserved bank verification mismatch before lock (expected=" +
+                    bytesToHex(bothPasswords) + ", actual=" + bytesToHex(actualReserved) + ")");
+            }
 
-        //     // Step 4: Verify PC+EPC data before lock.
-        //     DataBuffer epcVerifyData = new DataBuffer();
-        //     returnCode = readWithRetry(
-        //         freshEpcTag,
-        //         ThEpcClass1Gen2.Bank.Epc,
-        //         1,
-        //         totalBlocks,
-        //         epcVerifyData
-        //     );
+            pauseBetweenOperations("INIT_RESERVED_VERIFY -> INIT_EPC_VERIFY", expectedEpcHex);
 
-        //     if (returnCode != ErrorCode.Ok) {
-        //         throw new Exception("Failed to verify EPC bank before lock: " + reader.lastErrorStatusText() +
-        //             " (ISO error: " + freshEpcTag.lastIsoError() + ")");
-        //     }
+            // Step 4: Verify PC+EPC data before lock.
+            DataBuffer epcVerifyData = new DataBuffer();
+            returnCode = readWithRetry(
+                freshEpcTag,
+                ThEpcClass1Gen2.Bank.Epc,
+                1,
+                totalBlocks,
+                epcVerifyData
+            );
 
-        //     byte[] actualPcEpc = epcVerifyData.data();
-        //     if (!Arrays.equals(actualPcEpc, pcAndEpc)) {
-        //         throw new Exception("EPC/PC verification mismatch before lock (expected=" +
-        //             bytesToHex(pcAndEpc) + ", actual=" + bytesToHex(actualPcEpc) + ")");
-        //     }
+            while (returnCode == ReaderStatus.NoTag) {
+                log.info("Retry reading the epc bank in the initialization operation with a fresh tag handler");
+                returnCode = reader.hm().inventory(true, inventoryParam);
+                ensureSingleTagInField(reader, returnCode);
+                handler = reader.hm().createTagHandler(0);
+                if (!(handler instanceof ThEpcClass1Gen2)) {
+                    throw new Exception("Tag is not EPC Gen2 compatible");
+                }
+                epcTag = (ThEpcClass1Gen2) handler;
+                returnCode = readWithRetry(
+                    freshEpcTag,
+                    ThEpcClass1Gen2.Bank.Epc,
+                    1,
+                    totalBlocks,
+                    epcVerifyData
+                );
+            }
 
-        //     pauseBetweenOperations("INIT_EPC_VERIFY -> INIT_LOCK", expectedEpcHex);
+            if (returnCode != ErrorCode.Ok) {
+                throw new Exception("Failed to verify EPC bank before lock: " + reader.lastErrorStatusText() +
+                    " (ISO error: " + freshEpcTag.lastIsoError() + ")");
+            }
 
-        //     // Step 5: Lock memory banks only after successful read-back verification.
-        //     // Lock kill password, access password, and EPC memory
-        //     // Parameters: kill, access, epc, tid, user
-        //     returnCode = lockWithRetry(
-        //         freshEpcTag,
-        //         LockParam.Lock,      // Lock kill password
-        //         LockParam.Lock,      // Lock access password
-        //         LockParam.Lock,      // Lock EPC memory
-        //         LockParam.Unchanged, // Leave TID unchanged
-        //         LockParam.Unchanged, // Leave User memory unchanged
-        //         accessPwdData        // Use access password for locking
-        //     );
+            byte[] actualPcEpc = epcVerifyData.data();
+            if (!Arrays.equals(actualPcEpc, pcAndEpc)) {
+                throw new Exception("EPC/PC verification mismatch before lock (expected=" +
+                    bytesToHex(pcAndEpc) + ", actual=" + bytesToHex(actualPcEpc) + ")");
+            }
 
-        //     if (returnCode != ErrorCode.Ok) {
-        //         throw new Exception("Failed to lock memory banks after successful write verification for EPC " +
-        //                           expectedEpcHex + ": " + reader.lastErrorStatusText() +
-        //                           " (ISO error: " + freshEpcTag.lastIsoError() + ")");
-        //     }
-        // }
+            pauseBetweenOperations("INIT_EPC_VERIFY -> INIT_LOCK", expectedEpcHex);
 
-        returnCode = lockWithRetry(
-            freshEpcTag,
-            LockParam.Lock,      // Lock kill password
-            LockParam.Lock,      // Lock access password
-            LockParam.Lock,      // Lock EPC memory
-            LockParam.Unchanged, // Leave TID unchanged
-            LockParam.Unchanged, // Leave User memory unchanged
-            accessPwdData        // Use access password for locking
-        );
+            // Step 5: Lock memory banks only after successful read-back verification.
+            // Lock kill password, access password, and EPC memory
+            // Parameters: kill, access, epc, tid, user
+            returnCode = lockWithRetry(
+                freshEpcTag,
+                LockParam.Lock,      // Lock kill password
+                LockParam.Lock,      // Lock access password
+                LockParam.Lock,      // Lock EPC memory
+                LockParam.Unchanged, // Leave TID unchanged
+                LockParam.Unchanged, // Leave User memory unchanged
+                accessPwdData        // Use access password for locking
+            );
 
-        if (returnCode != ErrorCode.Ok) {
-            throw new Exception("Failed to lock memory banks after successful write verification for EPC " +
-                              expectedEpcHex + ": " + reader.lastErrorStatusText() +
-                              " (ISO error: " + freshEpcTag.lastIsoError() + ")");
+            while (returnCode == ReaderStatus.NoTag) {
+                log.info("Retrying locking the tag in the initialization operation with a fresh tag handeler as no tag was found");
+                returnCode = reader.hm().inventory(true, inventoryParam);
+                ensureSingleTagInField(reader, returnCode);
+                handler = reader.hm().createTagHandler(0);
+                if (!(handler instanceof ThEpcClass1Gen2)) {
+                    throw new Exception("Tag is not EPC Gen2 compatible");
+                }
+                epcTag = (ThEpcClass1Gen2) handler;
+                returnCode = lockWithRetry(
+                    freshEpcTag,
+                    LockParam.Lock,      // Lock kill password
+                    LockParam.Lock,      // Lock access password
+                    LockParam.Lock,      // Lock EPC memory
+                    LockParam.Unchanged, // Leave TID unchanged
+                    LockParam.Unchanged, // Leave User memory unchanged
+                    accessPwdData        // Use access password for locking
+                );
+            }
+
+            if (returnCode != ErrorCode.OK) {
+                throw new Exception("Failed to lock memory banks after successful write verification for EPC " +
+                                  expectedEpcHex + ": " + reader.lastErrorStatusText() +
+                                  " (ISO error: " + freshEpcTag.lastIsoError() + ")");
+            }
         }
+
     }
 
     /**
@@ -1827,26 +1906,34 @@ public class Main {
         InventoryParam inventoryParam = new InventoryParam();
         inventoryParam.setAntennas(config.getAntennaMask());
         int returnCode = reader.hm().inventory(true, inventoryParam);
-        
-        if (returnCode != ErrorCode.Ok) {
-            throw new Exception("Inventory failed: " + reader.lastErrorStatusText());
-        }
-        
-        if (reader.hm().itemCount() == 0) {
-            throw new Exception("No tags found in field");
-        }
+        ensureTagInField(reader, returnCode);
 
         // Find matching tag
-        try (ThEpcClass1Gen2 epcTag = findTagByEpc(reader, epcHex)) {
-            if (epcTag == null) {
-                throw new Exception("Specified tag not found or not EPC Gen2");
-            }
+        ThEpcClass1Gen2 epcTag = findTagByEpc(reader, epcHex);
+        if (epcTag == null) {
+            throw new Exception("Specified tag not found or not EPC Gen2");
+        }
 
-            // Use old access password for unlocking
-            DataBuffer oldAccessPwd = new DataBuffer(oldTag.getAccessPassword());
+        // Use old access password for unlocking
+        DataBuffer oldAccessPwd = new DataBuffer(oldTag.getAccessPassword());
 
-            // Step 1: Unlock memory banks using old access password
-            // Parameters: kill, access, epc, tid, user
+        // Step 1: Unlock memory banks using old access password
+        // Parameters: kill, access, epc, tid, user
+        returnCode = lockWithRetry(
+            epcTag,
+            LockParam.Unlock,    // Unlock kill password
+            LockParam.Unlock,    // Unlock access password
+            LockParam.Unlock,    // Unlock EPC memory
+            LockParam.Unchanged, // Leave TID unchanged
+            LockParam.Unchanged, // Leave User memory unchanged
+            oldAccessPwd         // Use OLD access password
+        );
+
+        while (returnCode == ReaderStatus.NoTag) {
+            log.info("Retrying unlocking the tag in the edit operation with a fresh tag handeler as no tag was found");
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureTagInField(reader, returnCode);
+            epcTag = findTagByEpc(reader, epcHex);
             returnCode = lockWithRetry(
                 epcTag,
                 LockParam.Unlock,    // Unlock kill password
@@ -1856,21 +1943,35 @@ public class Main {
                 LockParam.Unchanged, // Leave User memory unchanged
                 oldAccessPwd         // Use OLD access password
             );
+        }
 
-            if (returnCode != ErrorCode.Ok) {
-                log.warn("Warning: Failed to unlock memory banks: {}", reader.lastErrorStatusText());
-                // Continue anyway - tag might not be locked
-            }
+        if (returnCode != ErrorCode.Ok) {
+            log.warn("Warning: Failed to unlock memory banks: {}", reader.lastErrorStatusText());
+            // Continue anyway - tag might not be locked
+        }
 
-            pauseBetweenOperations("EDIT_UNLOCK -> EDIT_PASSWORDS_WRITE", epcHex);
+        pauseBetweenOperations("EDIT_UNLOCK -> EDIT_PASSWORDS_WRITE", epcHex);
 
-            // Step 2: Write new kill + access passwords together in one operation
-            // Kill password at word 0-1 (4 bytes), access password at word 2-3 (4 bytes)
-            byte[] bothNewPasswords = new byte[8];
-            System.arraycopy(newTag.getKillPassword(), 0, bothNewPasswords, 0, 4);
-            System.arraycopy(newTag.getAccessPassword(), 0, bothNewPasswords, 4, 4);
+        // Step 2: Write new kill + access passwords together in one operation
+        // Kill password at word 0-1 (4 bytes), access password at word 2-3 (4 bytes)
+        byte[] bothNewPasswords = new byte[8];
+        System.arraycopy(newTag.getKillPassword(), 0, bothNewPasswords, 0, 4);
+        System.arraycopy(newTag.getAccessPassword(), 0, bothNewPasswords, 4, 4);
 
-            DataBuffer newPasswordsData = new DataBuffer(bothNewPasswords);
+        DataBuffer newPasswordsData = new DataBuffer(bothNewPasswords);
+        returnCode = writeWithRetry(
+            epcTag,
+            ThEpcClass1Gen2.Bank.Reserved,
+            0, // Start at word 0 (kill password location)
+            4, // 8 bytes = 4 words
+            newPasswordsData
+        );
+
+        while (returnCode == ReaderStatus.NoTag) {
+            log.info("Retrying writing the reserved bank in the edit operation with a fresh tag handeler as no tag was found");
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureTagInField(reader, returnCode);
+            epcTag = findTagByEpc(reader, epcHex);
             returnCode = writeWithRetry(
                 epcTag,
                 ThEpcClass1Gen2.Bank.Reserved,
@@ -1878,22 +1979,35 @@ public class Main {
                 4, // 8 bytes = 4 words
                 newPasswordsData
             );
+        }
 
-            if (returnCode != ErrorCode.Ok) {
-                throw new Exception("Failed to write new passwords: " + reader.lastErrorStatusText() +
-                                  " (ISO error: " + epcTag.lastIsoError() + ")");
-            }
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Failed to write new passwords: " + reader.lastErrorStatusText() +
+                              " (ISO error: " + epcTag.lastIsoError() + ")");
+        }
 
-            pauseBetweenOperations("EDIT_PASSWORDS_WRITE -> EDIT_EPC_WRITE", epcHex);
+        pauseBetweenOperations("EDIT_PASSWORDS_WRITE -> EDIT_EPC_WRITE", epcHex);
 
-            // Step 3: Write EPC (and PC if length changed)
-            if (oldEpcLength != newEpcLength) {
-                // Length changed - must write PC+EPC together
-                byte[] pcAndEpc = new byte[newTag.getPc().length + newTag.getEpc().length];
-                System.arraycopy(newTag.getPc(), 0, pcAndEpc, 0, newTag.getPc().length);
-                System.arraycopy(newTag.getEpc(), 0, pcAndEpc, newTag.getPc().length, newTag.getEpc().length);
+        // Step 3: Write EPC (and PC if length changed)
+        if (oldEpcLength != newEpcLength) {
+            // Length changed - must write PC+EPC together
+            byte[] pcAndEpc = new byte[newTag.getPc().length + newTag.getEpc().length];
+            System.arraycopy(newTag.getPc(), 0, pcAndEpc, 0, newTag.getPc().length);
+            System.arraycopy(newTag.getEpc(), 0, pcAndEpc, newTag.getPc().length, newTag.getEpc().length);
 
-                DataBuffer pcEpcData = new DataBuffer(pcAndEpc);
+            DataBuffer pcEpcData = new DataBuffer(pcAndEpc);
+            returnCode = writeWithRetry(
+                epcTag,
+                ThEpcClass1Gen2.Bank.Epc,
+                1, // Start at word 1 (PC+EPC)
+                pcAndEpc.length / 2,
+                pcEpcData
+            );
+            while (returnCode == ReaderStatus.NoTag) {
+                log.info("Retrying writing the EPC bank in the edit operation with a fresh tag handeler as no tag was found");
+                returnCode = reader.hm().inventory(true, inventoryParam);
+                ensureTagInField(reader, returnCode);
+                epcTag = findTagByEpc(reader, epcHex);
                 returnCode = writeWithRetry(
                     epcTag,
                     ThEpcClass1Gen2.Bank.Epc,
@@ -1901,9 +2015,22 @@ public class Main {
                     pcAndEpc.length / 2,
                     pcEpcData
                 );
-            } else {
-                // Length unchanged - write only EPC data
-                DataBuffer epcData = new DataBuffer(newTag.getEpc());
+            }
+        } else {
+            // Length unchanged - write only EPC data
+            DataBuffer epcData = new DataBuffer(newTag.getEpc());
+            returnCode = writeWithRetry(
+                epcTag,
+                ThEpcClass1Gen2.Bank.Epc,
+                2, // EPC starts at word 2 (after PC at word 1)
+                newTag.getEpc().length / 2,
+                epcData
+            );
+            while (returnCode == ReaderStatus.NoTag) {
+                log.info("Retrying writing the EPC bank in the edit operation with a fresh tag handeler as no tag was found");
+                returnCode = reader.hm().inventory(true, inventoryParam);
+                ensureTagInField(reader, returnCode);
+                epcTag = findTagByEpc(reader, epcHex);
                 returnCode = writeWithRetry(
                     epcTag,
                     ThEpcClass1Gen2.Bank.Epc,
@@ -1912,11 +2039,11 @@ public class Main {
                     epcData
                 );
             }
+        }
 
-            if (returnCode != ErrorCode.Ok) {
-                throw new Exception("Failed to write new EPC: " + reader.lastErrorStatusText() +
-                                  " (ISO error: " + epcTag.lastIsoError() + ")");
-            }
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Failed to write new EPC: " + reader.lastErrorStatusText() +
+                              " (ISO error: " + epcTag.lastIsoError() + ")");
         }
 
         // CRITICAL: After writing EPC, must re-inventory to get fresh tag handler
@@ -1933,13 +2060,28 @@ public class Main {
 
         // Find the tag with NEW EPC
         String newEpcHex = newTag.getEpcHexString();
-        try (ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, newEpcHex)) {
-            if (freshEpcTag == null) {
-                throw new Exception("Could not re-select tag with new EPC: " + newEpcHex);
-            }
+        ThEpcClass1Gen2 freshEpcTag = findTagByEpc(reader, newEpcHex)
+        if (freshEpcTag == null) {
+            throw new Exception("Could not re-select tag with new EPC: " + newEpcHex);
+        }
 
-            // Step 4: Lock memory banks again using new access password (with fresh handler)
-            DataBuffer newAccessPwd = new DataBuffer(newTag.getAccessPassword());
+        // Step 4: Lock memory banks again using new access password (with fresh handler)
+        DataBuffer newAccessPwd = new DataBuffer(newTag.getAccessPassword());
+        returnCode = lockWithRetry(
+            freshEpcTag,
+            LockParam.Lock,      // Lock kill password
+            LockParam.Lock,      // Lock access password
+            LockParam.Lock,      // Lock EPC memory
+            LockParam.Unchanged, // Leave TID unchanged
+            LockParam.Unchanged, // Leave User memory unchanged
+            newAccessPwd         // Use NEW access password
+        );
+
+        while (returnCode == ReaderStatus.NoTag) {
+            log.info("Retrying locking the tag in the edit operation with a fresh tag handeler as no tag was found");
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureTagInField(reader, returnCode);
+            freshEpcTag = findTagByEpc(reader, epcHex);
             returnCode = lockWithRetry(
                 freshEpcTag,
                 LockParam.Lock,      // Lock kill password
@@ -1949,11 +2091,11 @@ public class Main {
                 LockParam.Unchanged, // Leave User memory unchanged
                 newAccessPwd         // Use NEW access password
             );
+        }
 
-            if (returnCode != ErrorCode.Ok) {
-                throw new Exception("Failed to lock memory banks: " + reader.lastErrorStatusText() +
-                                  " (ISO error: " + freshEpcTag.lastIsoError() + ")");
-            }
+        if (returnCode != ErrorCode.Ok) {
+            throw new Exception("Failed to lock memory banks: " + reader.lastErrorStatusText() +
+                              " (ISO error: " + freshEpcTag.lastIsoError() + ")");
         }
     }
 
@@ -1967,20 +2109,13 @@ public class Main {
         InventoryParam inventoryParam = new InventoryParam();
         inventoryParam.setAntennas(config.getAntennaMask());
         int returnCode = reader.hm().inventory(true, inventoryParam);
-        
-        if (returnCode != ErrorCode.Ok) {
-            throw new Exception("Inventory failed: " + reader.lastErrorStatusText());
-        }
-        
-        if (reader.hm().itemCount() == 0) {
-            throw new Exception("No tags found in field");
-        }
+        ensureTagInField(reader, returnCode);
 
         // Find matching tag
-        try (ThEpcClass1Gen2 epcTag = findTagByEpc(reader, epcHex)) {
-            if (epcTag == null) {
-                throw new Exception("Specified tag not found or not EPC Gen2");
-            }
+        ThEpcClass1Gen2 epcTag = findTagByEpc(reader, epcHex);
+        if (epcTag == null) {
+            throw new Exception("Specified tag not found or not EPC Gen2");
+        }
 
         // Step 1: Read TID bank (96 bits = 12 bytes = 6 words)
         DataBuffer tidData = new DataBuffer();
@@ -1991,6 +2126,19 @@ public class Main {
             6, // Read 6 words (12 bytes = 96 bits)
             tidData
         );
+
+        while (returnCode != ErrorCode.Ok) {
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureTagInField(reader, returnCode);
+            epcTag = findTagByEpc(reader, epcHex);
+            returnCode = readWithRetry(
+                epcTag,
+                ThEpcClass1Gen2.Bank.Tid,
+                0, // Start at word 0
+                6, // Read 6 words (12 bytes = 96 bits)
+                tidData
+            );
+        }
 
         if (returnCode != ErrorCode.Ok) {
             throw new Exception("Failed to read TID: " + reader.lastErrorStatusText() +
@@ -2029,6 +2177,21 @@ public class Main {
                 oldAccessPwdBuf      // Use OLD access password
             );
 
+            while (returnCode == ReaderStatus.NoTag) {
+                returnCode = reader.hm().inventory(true, inventoryParam);
+                ensureTagInField(reader, returnCode);
+                epcTag = findTagByEpc(reader, epcHex);
+                returnCode = lockWithRetry(
+                    epcTag,
+                    LockParam.Unlock,    // Unlock kill password
+                    LockParam.Unlock,    // Unlock access password
+                    LockParam.Unlock,    // Unlock EPC memory
+                    LockParam.Unchanged, // Leave TID unchanged
+                    LockParam.Unchanged, // Leave User memory unchanged
+                    oldAccessPwdBuf      // Use OLD access password
+                );
+            }
+
             if (returnCode != ErrorCode.Ok) {
                 log.warn("Warning: Failed to unlock memory banks: {}", reader.lastErrorStatusText());
                 // Continue anyway - tag might not be locked
@@ -2051,6 +2214,19 @@ public class Main {
             4,
             zeroPasswordsData
         );
+
+        while (returnCode == ReaderStatus.NoTag) {
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureTagInField(reader, returnCode);
+            epcTag = findTagByEpc(reader, epcHex);
+            returnCode = writeWithRetry(
+                epcTag,
+                ThEpcClass1Gen2.Bank.Reserved,
+                0,
+                4,
+                zeroPasswordsData
+            );
+        }
         
         if (returnCode != ErrorCode.Ok) {
             throw new Exception("Failed to clear passwords: " + reader.lastErrorStatusText() +
@@ -2076,6 +2252,19 @@ public class Main {
             pcEpcData
         );
 
+        while (returnCode == ReaderStatus.NoTag) {
+            returnCode = reader.hm().inventory(true, inventoryParam);
+            ensureTagInField(reader, returnCode);
+            epcTag = findTagByEpc(reader, epcHex);
+            returnCode = writeWithRetry(
+                epcTag,
+                ThEpcClass1Gen2.Bank.Epc,
+                1, // Start at word 1 (PC + EPC)
+                pcAndEpc.length / 2, // 14 bytes = 7 words
+                pcEpcData
+            );
+        }
+
         if (returnCode != ErrorCode.Ok) {
             throw new Exception("Failed to write PC+EPC: " + reader.lastErrorStatusText() +
                               " (ISO error: " + epcTag.lastIsoError() + ")");
@@ -2083,12 +2272,11 @@ public class Main {
 
         // Convert TID to hex string for response
         String tidHex = bytesToHex(tidBytes);
-            return Map.of(
-                "newEpc", tidHex,
-                "newPc", "3000",
-                "tid", tidHex
-            );
-        }
+        return Map.of(
+            "newEpc", tidHex,
+            "newPc", "3000",
+            "tid", tidHex
+        );
     }
 
     /**
@@ -2599,6 +2787,12 @@ public class Main {
             if (tagItem.iddToHexString().equalsIgnoreCase(epcHex)) {
                 ThBase handler = reader.hm().createTagHandler(i);
                 if (handler instanceof ThEpcClass1Gen2) {
+                    log.info(
+                        "Selected inventory item {}: EPC={}, handler={}",
+                        i,
+                        tagItem.iddToHexString(),
+                        handler.getClass().getSimpleName()
+                    );
                     return (ThEpcClass1Gen2) handler;
                 }
                 if (handler != null) {
@@ -2606,6 +2800,7 @@ public class Main {
                 }
             }
         }
+        log.info("Tag not found: EPC={}", epcHex);
         return null;
     }
 
@@ -2775,10 +2970,15 @@ public class Main {
                                      int startBlock, int blockCount, DataBuffer data, DataBuffer password) {
         int lastReturnCode = -1;
         for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            
+            long start = System.nanoTime();
+
             int returnCode = (password != null)
                 ? epcTag.readMultipleBlocks(bank, startBlock, blockCount, data, password)
                 : epcTag.readMultipleBlocks(bank, startBlock, blockCount, data);
             lastReturnCode = returnCode;
+
+            long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
             if (returnCode == ErrorCode.Ok) {
                 if (attempt > 1) {
@@ -2788,13 +2988,12 @@ public class Main {
                 return returnCode;
             }
 
-            log.warn("Read from {}[{}] failed on attempt {}/{} (error: [{}: {}], iso: {})",
-                bank, startBlock, attempt, MAX_RETRIES, returnCode, ErrorCode.toString(returnCode), epcTag.lastIsoError());
+            log.warn("Read from {}[{}] failed on attempt {}/{} (error: [{}: {}], iso: {}) commandTime={} ms",
+                bank, startBlock, attempt, MAX_RETRIES, returnCode, ReaderStatus.toString(returnCode), epcTag.lastIsoError(), elapsedMs);
 
             if (attempt < MAX_RETRIES) {
                 try {
-                    Thread.sleep(OPERATION_SETTLE_MS  + (attempt - 1) * THREAD_SLEEP_TIME / 100);
-                    // Thread.sleep(OPERATION_SETTLE_MS);
+                    Thread.sleep(THREAD_SLEEP_TIME);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     log.warn("Read retry interrupted");
