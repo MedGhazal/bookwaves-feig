@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
 
@@ -57,7 +58,7 @@ public class Main {
     private static Path tagFileLoggingPath;
 
     public static void main(String[] args) {
-        List<ReaderConfig> readers;
+        AtomicReference<List<ReaderConfig>> readers = new AtomicReference<>();
 
         try {
             ConfigLoader.loadConfiguration();
@@ -98,7 +99,7 @@ public class Main {
         log.info("Tag file logging initialized (enabled={}, path={})", tagFileLoggingEnabled, tagFileLoggingPath);
 
         try {
-            readers = ConfigLoader.loadReaders();
+            readers.set(ConfigLoader.loadReaders());
         } catch (Exception e) {
             log.error("Failed to load reader configuration", e);
             System.exit(1);
@@ -121,7 +122,7 @@ public class Main {
             TagFactory.setPasswordConfiguration(tagPasswords);
             log.info("Loaded tag password configuration with {} entries", tagPasswords.size());
             
-            for (ReaderConfig config : readers) {
+            for (ReaderConfig config : readers.get()) {
                 readerManager.registerReader(config);
                 log.info("Registered reader: {} (type: {}, protocol: {}, mode: {}, antennas: {})",
                     config.getName(), config.getType(), config.getProtocol(),
@@ -583,6 +584,11 @@ public class Main {
                 
                 // MAIN ENDPOINTS
                 config.routes.get("/readers", ctx -> {
+                    try {
+                        readers.set(reloadReaderConfiguration());
+                    } catch (Exception e) {
+                        log.info("Continuing with the original reader configuration");
+                    }
                     List<Map<String, Object>> readerList = new ArrayList<>();
                     log.debug("Listing registered readers");
                     
@@ -2873,6 +2879,29 @@ public class Main {
         }
         
         return lastReturnCode;
+    }
+
+    /** 
+     * Reloads the configuration to keep the reader configuration upto date with config.yaml
+     */
+    private static List<ReaderConfig> reloadReaderConfiguration() throws Exception {
+        log.info("Reloading reader configuration");
+        List<ReaderConfig> readers;
+        try {
+            ConfigLoader.loadConfiguration();
+        } catch (Exception e) {
+            System.err.println("Failed to reload reader configuration: " + e.getMessage());
+            throw new Exception(e.getMessage());
+        }
+
+        try {
+            readers = ConfigLoader.loadReaders();
+        } catch (Exception e) {
+            log.error("Failed to reload reader configuration", e);
+            throw new Exception(e.getMessage());
+        }
+
+        return readers;
     }
 
     /**
